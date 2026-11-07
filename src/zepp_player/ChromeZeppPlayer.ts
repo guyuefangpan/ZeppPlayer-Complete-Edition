@@ -26,14 +26,14 @@ export class ChromeZeppPlayer extends ZeppPlayer {
     public _htmlRootBlock: HTMLElement = null;
     public uiOverlayPosition: [number, number] = [0, 0];
 
-    async loadFile(path: string) {
+    async loadFile(path: string, quiet: boolean = false) {
         const resp = await fetch(path);
         if(resp.status !== 200) {
             const message = [
                 "Can't fetch script file\nURL:", path
             ];
 
-            if(this.appConfig.runtime.type === 2) {
+            if(this.appConfig && this.appConfig.runtime && this.appConfig.runtime.type === 2) {
                 message.push("\n\nIn app.json, runtime.type is set to 2.\n" +
                     "Looks like this package is packaged into bytecode \n" +
                     "(*.bin file), and no fallback JS file is provided. \n\n" +
@@ -41,7 +41,9 @@ export class ChromeZeppPlayer extends ZeppPlayer {
                     "no way to unpack them back into JS.\n\n");
             }
 
-            this.onConsole("ZeppPlayerFatalError", message);
+            // Optional files (app-side.js) are probed for existence; missing
+            // them is expected and must not be reported as a fatal error.
+            if(!quiet) this.onConsole("ZeppPlayerFatalError", message);
             throw new Error(`Can't fetch script file ${path}`);
         }
         return await resp.arrayBuffer();
@@ -81,7 +83,7 @@ export class ChromeZeppPlayer extends ZeppPlayer {
             out[type] = this.deviceState[type].value;
         }
 
-        localStorage.zp_deviceState = JSON.stringify(out);
+        try { localStorage.zp_deviceState = JSON.stringify(out); } catch (e) {}
     }
 
     getEvalAdditionalData(scriptPath: string) {
@@ -90,20 +92,25 @@ export class ChromeZeppPlayer extends ZeppPlayer {
 
     setupHTMLEvents(block: HTMLElement) {
         let isMouseDown = false;
+        let activePointer: number = null;
 
         this._htmlRootBlock = block;
+
+        // The canvas is scaled down by CSS on phones; suppress the browser's
+        // own touch gestures so dragging on the watch screen works as input.
+        (block as HTMLElement).style.touchAction = "none";
 
         document.documentElement.onkeydown = (e) => {
             if(e.key === "Shift") {
                 this.uiOverlayVisible = true;
-                this.currentRuntime.refresh_required = "uiOverlay";
+                if(this.currentRuntime) this.currentRuntime.refresh_required = "uiOverlay";
             }
         }
 
         document.documentElement.onkeyup = (e) => {
             if(e.key === "Shift") {
                 this.uiOverlayVisible = false;
-                this.currentRuntime.refresh_required = "uiOverlay";
+                if(this.currentRuntime) this.currentRuntime.refresh_required = "uiOverlay";
             }
         };
 
@@ -114,42 +121,48 @@ export class ChromeZeppPlayer extends ZeppPlayer {
             }
         }
 
-        block.onmousedown = (e) => {
+        // Pointer events cover mouse, pen and touch with one code path, so
+        // tapping and dragging the watch screen works on phones as well.
+        // The runtime is null while a project is loading or after a failed
+        // start; touches on the canvas must then be ignored instead of
+        // throwing "handleEvent of null" on every tap.
+        block.onpointerdown = (e) => {
             e.preventDefault();
+            if(!this.currentRuntime) return;
+            activePointer = e.pointerId;
+            try { block.setPointerCapture(e.pointerId); } catch (err) {}
             const [x, y] = this._fetchCoordinates(e);
             isMouseDown = true;
             this.currentRuntime.handleEvent("onmousedown", x, y, {x, y});
         };
 
-        block.onmouseup = (e) => {
-            const [x, y] = this._fetchCoordinates(e);
-            isMouseDown = false;
-            this.currentRuntime.handleEvent("onmouseup", x, y, {x, y});
-        };
-
-        block.onmouseout = (e) => {
-            const [x, y] = this._fetchCoordinates(e);
-            if(isMouseDown) this.currentRuntime.handleEvent("onmouseup", {x, y})
-            isMouseDown = false;
-        }
-
-        block.onmousemove = (e) => {
+        block.onpointermove = (e) => {
             e.preventDefault();
             const [x, y] = this._fetchCoordinates(e);
-            if(isMouseDown)
+            if(isMouseDown && this.currentRuntime && (activePointer === null || e.pointerId === activePointer))
                 this.currentRuntime.handleEvent("onmousemove", x, y, {x, y});
 
-            if(this._uiOverlayVisible) {
+            if(this._uiOverlayVisible && this.currentRuntime) {
                 const rect = block.getBoundingClientRect();
-                const uiX = e.clientX - rect.left;
-                const uiY = e.clientY - rect.top;
-
-                this.uiOverlayPosition = [uiX, uiY];
+                this.uiOverlayPosition = [e.clientX - rect.left, e.clientY - rect.top];
                 this.currentRuntime.refresh_required = "uiOverlay";
             }
         };
 
+        const finishPointer = (e: PointerEvent) => {
+            if(activePointer !== null && e.pointerId !== activePointer) return;
+            activePointer = null;
+            const [x, y] = this._fetchCoordinates(e);
+            if(isMouseDown && this.currentRuntime) this.currentRuntime.handleEvent("onmouseup", x, y, {x, y});
+            isMouseDown = false;
+        };
+
+        block.onpointerup = finishPointer;
+        block.onpointercancel = finishPointer;
+
         block.oncontextmenu = (e) => {
+            // Long-press on a phone would otherwise open the context menu.
+            e.preventDefault();
             const [x, y] = this._fetchCoordinates(e);
             console.log("click coords", x, y);
         };
@@ -158,7 +171,7 @@ export class ChromeZeppPlayer extends ZeppPlayer {
     async render(force=false) {
         const canvas = await super.render(force);
 
-        if(this._uiOverlayVisible) {
+        if(this._uiOverlayVisible && this.currentRuntime) {
             let [x, y] = this.uiOverlayPosition;
             y += this.config.renderScroll;
 
@@ -255,27 +268,35 @@ export class ChromeZeppPlayer extends ZeppPlayer {
     }
 
     _fetchCoordinates(e: MouseEvent) {
-        const rect = this._htmlRootBlock.getBoundingClientRect()
+        const block = this._htmlRootBlock as HTMLCanvasElement;
+        const rect = block.getBoundingClientRect()
+        // The canvas keeps its native resolution while CSS may scale it down
+        // on phones, so map CSS pixels back into canvas pixels.
+        const sx = rect.width > 0 ? block.width / rect.width : 1;
+        const sy = rect.height > 0 ? block.height / rect.height : 1;
         let x, y;
 
         switch(this.rotation) {
             case 90:
-                x = e.clientY - rect.top;
-                y = rect.width - (e.clientX - rect.left);
+                x = (e.clientY - rect.top) * sy;
+                y = (rect.width - (e.clientX - rect.left)) * sx;
                 break;
             case 180:
-                x = rect.width - (e.clientX - rect.left);
-                y = rect.height - (e.clientY - rect.top);
+                x = (rect.width - (e.clientX - rect.left)) * sx;
+                y = (rect.height - (e.clientY - rect.top)) * sy;
                 break;
             case 270:
-                x = rect.height - (e.clientY - rect.top);
-                y = e.clientX - rect.left;
+                x = (rect.height - (e.clientY - rect.top)) * sy;
+                y = (e.clientX - rect.left) * sx;
                 break;
             default:
-                x = e.clientX - rect.left;
-                y = e.clientY - rect.top;
+                x = (e.clientX - rect.left) * sx;
+                y = (e.clientY - rect.top) * sy;
         }
-        
+
+        x = Math.min(Math.max(x, 0), Math.max(block.width - 1, 0));
+        y = Math.min(Math.max(y, 0), Math.max(block.height - 1, 0));
+
         return [Math.floor(x), Math.floor(y)];
     }
 

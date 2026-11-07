@@ -21,6 +21,7 @@ import Overlay from "./ui/Overlay.js";
 import ZeppRuntime from "./ZeppRuntime.js";
 import {TGAImage} from "./TgaImage";
 import {AppEnvironment} from "./SyystemEnvironment";
+import AppSideManager from "./appside/AppSideManager.js";
 import { DeviceInfo, getDeviceProfiles } from "./DeviceProfiles";
 import {MiniSignal} from 'mini-signals';
 import {CanvasEntry, ImageEntry} from "./types/EnvironmentTypes";
@@ -50,8 +51,10 @@ export default abstract class ZeppPlayer {
     public currentRuntime: ZeppRuntime = null;
     public onConsoleOutput = new MiniSignal<[string, any[], any]>();
     public onProjectChanged = new MiniSignal<[string, any]>();
+    public onRuntimeChanged = new MiniSignal<[ZeppRuntime]>();
     public deviceState = new DeviceState();
     public onConfigChanged = new MiniSignal<[string, any]>();
+    public appSideManager: AppSideManager = null;
 
     protected vfs: {[path: string]: ArrayBuffer} = {};
 
@@ -64,6 +67,8 @@ export default abstract class ZeppPlayer {
     private imgCache: {[path: string]: ImageEntry | CanvasEntry} = {};
     private globalScopeFix: string[] = [];
     private overlayTool: Overlay;
+    private secondTimer: any = null;
+    private _restarting: boolean = false;
 
     get profileData(): DeviceInfo {
         return profiles[this.profileName];
@@ -81,6 +86,8 @@ export default abstract class ZeppPlayer {
             set: this.changeOption.bind(this)
         });
 
+        this.appSideManager = new AppSideManager(this);
+
         this.onConfigChanged.add(() => {
             if(this.currentRuntime)
                 this.currentRuntime.refresh_required = "config_changed";
@@ -95,7 +102,19 @@ export default abstract class ZeppPlayer {
             }
         })
 
-        setInterval(this.handleSecondChanged.bind(this), 1000);
+        this.secondTimer = setInterval(this.handleSecondChanged.bind(this), 1000);
+    }
+
+    /**
+     * Stop the player clock and destroy runtimes. Used by short-lived players
+     * such as the overview cards so their timers don't leak.
+     */
+    dispose() {
+        if(this.secondTimer) {
+            clearInterval(this.secondTimer);
+            this.secondTimer = null;
+        }
+        this.finish().catch(() => {});
     }
 
     /**
@@ -186,14 +205,34 @@ export default abstract class ZeppPlayer {
         await this._loadAppJs();
         await this.overlayTool.init();
         await this.preloadProjectAssets(path + "/");
+        await this.appSideManager.loadProject(path);
 
         this.onProjectChanged.dispatch(this.projectPath, this.appConfig);
     }
 
     async restart() {
-        await this.finish();
-        await this.setProject(this.projectPath);
-        await this.init();
+        // File-watch, save and toolbar can all ask for a restart at once; two
+        // overlapping runs leave the player without a runtime, which used to
+        // turn every later tap into "handleEvent of null".
+        if(this._restarting) return;
+        this._restarting = true;
+
+        try {
+            await this.finish();
+            await this.setProject(this.projectPath);
+            await this.init();
+        } catch(e) {
+            console.error("Restart failed", e);
+            this.onConsole("ZeppPlayer", ["Restart failed", String(e && e.message || e)]);
+            try {
+                await this.init();
+            } catch(e2) {
+                console.error("Recovery failed", e2);
+                this.onConsole("ZeppPlayer", ["Recovery failed", String(e2 && e2.message || e2)]);
+            }
+        } finally {
+            this._restarting = false;
+        }
     }
 
     async enterPage(url: string, param: string) {
@@ -510,6 +549,7 @@ export default abstract class ZeppPlayer {
      * @private
      */
     private _finishCurrentRuntime() {
+        if(!this.currentRuntime) return;
         this.currentRuntime.callDelegates("pause_call");
         this.currentRuntime.uiPause = true;
         this.currentRuntime.destroy();
@@ -530,6 +570,7 @@ export default abstract class ZeppPlayer {
         this.lastCanvas = null;
         this.currentRuntime = runtime;
         runtime.refresh_required = 'attach';
+        this.onRuntimeChanged.dispatch(runtime);
 
         this.onConsole("ZeppPlayer", [
             "Switch to",

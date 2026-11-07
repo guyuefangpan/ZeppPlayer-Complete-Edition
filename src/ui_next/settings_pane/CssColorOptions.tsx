@@ -1,23 +1,24 @@
 import React from "preact/compat";
 import {CssSettingsOption} from "./CssSettingsOption";
+import I18n from "../../zepp_player/i18n.js";
 
 export const CSS_OPTIONS: {[id: string]: string} = {
-    "accent": "Accent color",
-    "background": "Page background color",
-    "foreground": "Page text color",
-    "panel": "Panels background color",
-    "panel-text": "Panels text color",
-    "editor": "Editor color",
-    "editor-text": "Editor text color",
-    "input": "Inputs and buttons background color",
-    "input-text": "Inputs and buttons text color",
+    "accent": "settings.color.accent",
+    "background": "settings.color.background",
+    "foreground": "settings.color.foreground",
+    "panel": "settings.color.panel",
+    "panel-text": "settings.color.panelText",
+    "editor": "settings.color.editor",
+    "editor-text": "settings.color.editorText",
+    "input": "settings.color.input",
+    "input-text": "settings.color.inputText",
 }
 
 export function CssColorOptions() {
     return (
         <>
             {Object.keys(CSS_OPTIONS).map((key) => <CssSettingsOption
-                title={CSS_OPTIONS[key]}
+                title={I18n.t(CSS_OPTIONS[key])}
                 description=""
                 cssPropName={key}
                 inputType="color" />)}

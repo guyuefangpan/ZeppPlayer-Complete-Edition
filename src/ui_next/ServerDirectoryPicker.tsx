@@ -3,6 +3,8 @@ import normalize from "path-normalize";
 import {Backdrop} from "./base/Backdrop";
 import {CommandPalette} from "./palette/CommandPalette";
 import {CommandPaletteItem} from "./palette/CommandPaletteItem";
+import I18n from "../zepp_player/i18n.js";
+import {zpAlert} from "../zepp_player/zpDialogs.js";
 
 type State = {
     path: string,
@@ -43,7 +45,14 @@ export function ServerDirectoryPicker(props: {open: boolean, onCancel?: () => an
             const resp = await fetch(`/api/set_projects_dir/${encodeURIComponent(currentPath)}`);
             if(resp.status == 200) {
                 location.reload();
+                return;
             }
+            let msg = resp.status + "";
+            try {
+                const j = await resp.json();
+                if(j && j.msg) msg = j.msg;
+            } catch(e) {}
+            await zpAlert(I18n.t("dialog.changeDirFailed", "Cannot change the projects folder") + ": " + msg);
             return;
         }
 
@@ -62,7 +71,7 @@ export function ServerDirectoryPicker(props: {open: boolean, onCancel?: () => an
         <Backdrop open={props.open}>
             <CommandPalette onSelect={handleSelect} onCancel={props.onCancel}>
                 <CommandPaletteItem value="$$apply$$">
-                    {`Use ${currentPath} directory`}
+                    {`${I18n.t("picker.useDir")}${currentPath} directory`}
                 </CommandPaletteItem>
                 {items.map((v) => (
                     <CommandPaletteItem value={v}>{v}</CommandPaletteItem>

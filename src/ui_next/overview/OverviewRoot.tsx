@@ -7,13 +7,14 @@ import {Button} from "../base/Button";
 
 import "./Overview.css";
 import {ProjectPicker} from "../../ui_managment/ProjectPicker";
+import I18n from "../../zepp_player/i18n.js";
 
 export function OverviewRoot(props: {open: boolean, onClose: () => any}) {
     const items = ProjectPicker.projects;
 
     return (
         <Dialog open={props.open} onCancel={props.onClose}>
-            <DialogTitle>Overview</DialogTitle>
+            <DialogTitle>{I18n.t("overview.title")}</DialogTitle>
             <DialogContent>
                 <div className="zp-overview">
                     {items.map((e) => <OverviewCard key={e.title} onCancel={props.onClose} {...e} />)}
@@ -21,7 +22,7 @@ export function OverviewRoot(props: {open: boolean, onClose: () => any}) {
             </DialogContent>
             <DialogActions>
                 <Button primary onClick={props.onClose}>
-                    Close
+                    {I18n.t("overview.close")}
                 </Button>
             </DialogActions>
         </Dialog>

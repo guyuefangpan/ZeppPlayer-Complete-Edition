@@ -271,7 +271,8 @@ export default class ZeppRuntime {
 
     onConsole(tag, data) {
         this.player.onConsole(tag, data, {
-            runtimeID: `SL:${this.showLevel}`
+            runtimeID: `SL:${this.showLevel}`,
+            scriptPath: this.scriptPath
         });
     }
 

@@ -26,6 +26,7 @@ import HuamiSettingMock from "./zepp_env/HuamiSetting.js";
 import HuamiUIMock from "./ui/HuamiUI.js";
 import TimerMock from "./zepp_env/Timer.js";
 import {HuamiBLEMock} from "./zepp_env/HuamiBLE.js";
+import {MessagingMock} from "./zepp_env/MessagingMock.js";
 import {HmApp} from "./zepp_env/HmApp.js";
 import ZeppPlayer from "./ZeppPlayer";
 import ZeppRuntime from "./ZeppRuntime";
@@ -69,9 +70,10 @@ export function createPageEnv(runtime: ZeppRuntime, appRuntime: AppEnvironment) 
     object.hmUI = new HuamiUIMock(runtime);
     object.hmFS = new HuamiFsMock(runtime);
     object.hmApp = new HmApp(runtime);
-    object.hmBle = new HuamiBLEMock(runtime);
-    object.hmSensor = new HuamiSensorMock(runtime);
     object.hmSetting = new HuamiSettingMock(runtime);
+    object.hmBle = new HuamiBLEMock(runtime);
+    object.messaging = new MessagingMock(runtime);
+    object.hmSensor = new HuamiSensorMock(runtime);
     object.timer = new TimerMock(runtime);
     object.console = new ConsoleMock(runtime, console);
 
@@ -88,6 +90,12 @@ export function createPageEnv(runtime: ZeppRuntime, appRuntime: AppEnvironment) 
     const glob = appRuntime.__$$hmAppManager$$__.currentApp.app.__globals__;
     for(let i in glob) {
         object[i] = glob[i];
+    }
+
+    // Release device-side messaging listener when this page runtime is torn down
+    if(runtime && runtime.onDestroy && object.messaging) {
+        const mm = object.messaging;
+        runtime.onDestroy.push(() => { if(mm && mm.dispose) mm.dispose(); });
     }
 
     return object;

@@ -19,10 +19,27 @@
 import {ChangesWatcher} from "./ChangesWatcher";
 import ZeppPlayer from "../zepp_player/ZeppPlayer";
 import AppSettingsManager from "./AppSettingsManager";
+import I18n from "../zepp_player/i18n.js";
+import {zpAlert, zpConfirm} from "../zepp_player/zpDialogs.js";
+import {showToast} from "../zepp_player/zpToast.js";
 
 export type ProjectRow = {
     title: string,
     url: string,
+}
+
+/* localStorage can throw inside restricted WebViews. */
+function readLocal(key: string, fallback: string): string {
+    try {
+        const v = localStorage[key];
+        return v === undefined || v === null ? fallback : v;
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function writeLocal(key: string, value: string) {
+    try { localStorage[key] = value; } catch (e) {}
 }
 
 export class ProjectPicker {
@@ -30,68 +47,179 @@ export class ProjectPicker {
     private static view: HTMLSelectElement = document.getElementById("project_select") as HTMLSelectElement;
     private static player: ZeppPlayer;
 
+    static isRealProject(url: string) {
+        return !!url && url.charAt(0) !== "<";
+    }
+
     static getProject() {
-        return ProjectPicker.view.value;
+        const value = ProjectPicker.view.value;
+        return ProjectPicker.isRealProject(value) ? value : "";
     }
 
     static async setup(player: ZeppPlayer) {
+        ProjectPicker.player = player;
+        ProjectPicker.view.onchange = () => { ProjectPicker.handleChange(); };
+        await ProjectPicker.refreshOptions();
+    }
+
+    /**
+     * Re-reads the projects folder and rebuilds the picker. Returns the URL
+     * that ended up selected (empty when the folder holds no project).
+     */
+    static async refreshOptions(preferredUrl?: string): Promise<string> {
         const preferBuildDir = AppSettingsManager.getObject("preferBuildDir", true);
 
         const response = await fetch(`/api/list_projects?preferBuildDir=${preferBuildDir}`);
         const projects = await response.json();
-        ProjectPicker.projects = projects;
-        ProjectPicker.player = player;
+        ProjectPicker.projects = Array.isArray(projects) ? projects : [];
 
-        const availableURLs = [];
-        for(const row of projects) {
+        const view = ProjectPicker.view;
+        while(view.options.length > 0) view.remove(0);
+
+        const availableURLs: string[] = [];
+        for(const row of ProjectPicker.projects) {
             const opt = document.createElement("option");
             opt.value = row.url;
             opt.innerText = row.title;
             availableURLs.push(row.url);
-            ProjectPicker.view.appendChild(opt);
+            view.appendChild(opt);
         }
 
-        // Add "open folder" option
-        const opt = document.createElement("option");
-        opt.value = "<open_folder>";
-        opt.innerText = "<file manager...>";
-        ProjectPicker.view.appendChild(opt);
-
-        // Add "change folder" option
-        const opt2 = document.createElement("option");
-        opt2.value = "<change_folder>";
-        opt2.innerText = "<change directory...>";
-        ProjectPicker.view.appendChild(opt2);
-
-        // Load current option
-        if(localStorage.zepp_player_last_project) {
-            const lastProject = localStorage.zepp_player_last_project;
-            if(availableURLs.indexOf(lastProject) > -1)
-                ProjectPicker.view.value = lastProject;
+        const addAction = (value: string, label: string) => {
+            const opt = document.createElement("option");
+            opt.value = value;
+            opt.innerText = label;
+            view.appendChild(opt);
+        };
+        addAction("<open_folder>", I18n.t("picker.fileManager"));
+        addAction("<change_folder>", I18n.t("picker.changeDir"));
+        if(availableURLs.length > 0) {
+            addAction("<delete_project>", I18n.t("picker.deleteProject"));
         }
 
-        // Event handler
-        ProjectPicker.view.onchange = async () => {
-            if(ProjectPicker.view.value === "<open_folder>") {
-                await fetch("/api/open_projects");
-                ProjectPicker.view.value = localStorage.zepp_player_last_project;
-                return
-            } else if(this.view.value === "<change_folder>") {
-                (window as any)._setReactPane("change_projects_dir");
-                ProjectPicker.view.value = localStorage.zepp_player_last_project;
+        // Always end up on a real project (never on an action entry).
+        let selected = "";
+        if(preferredUrl) {
+            for(const url of availableURLs) {
+                if(url === preferredUrl || url.indexOf(preferredUrl + "/") === 0) {
+                    selected = url;
+                    break;
+                }
+            }
+        }
+        if(!selected) {
+            const lastProject = readLocal("zepp_player_last_project", "");
+            if(lastProject && availableURLs.indexOf(lastProject) > -1) {
+                selected = lastProject;
+            } else if(availableURLs.length > 0) {
+                selected = availableURLs[0];
+            }
+        }
+
+        view.value = selected;
+        writeLocal("zepp_player_last_project", selected);
+        return selected;
+    }
+
+    private static async handleChange() {
+        const view = ProjectPicker.view;
+        const value = view.value;
+        const previous = readLocal("zepp_player_last_project", "");
+
+        if(value === "<open_folder>") {
+            view.value = previous;
+            try {
+                const r = await fetch("/api/open_projects");
+                const j = await r.json();
+                if (j && !j.ok) {
+                    await zpAlert(I18n.t("dialog.openFolderFailed", "Cannot open the projects folder") + ": " + (j.msg || ""));
+                }
+            } catch (e) {
+                await zpAlert(I18n.t("dialog.openFolderFailed", "Cannot open the projects folder") + ": " + e);
+            }
+            return;
+        }
+
+        if(value === "<change_folder>") {
+            view.value = previous;
+            try {
+                const r = await fetch("/api/choose_projects_dir");
+                const j = await r.json();
+                if (j && j.ok) {
+                    location.reload();
+                } else if (j && j.msg) {
+                    await zpAlert(j.msg);
+                }
+            } catch (e) {
+                await zpAlert(I18n.t("dialog.changeDirFailed", "Cannot change the projects folder") + ": " + e);
+            }
+            return;
+        }
+
+        if(value === "<delete_project>") {
+            view.value = previous;
+            await ProjectPicker.deleteProject(previous);
+            return;
+        }
+
+        await ProjectPicker.applyProjectUrl(value);
+    }
+
+    static async deleteProject(url: string) {
+        if(!ProjectPicker.isRealProject(url)) return;
+
+        let name = url;
+        for(const row of ProjectPicker.projects) {
+            if(row.url === url) { name = row.title; break; }
+        }
+        const parts = url.split("/").filter(Boolean);
+        if(name === url && parts.length) name = parts[parts.length - 1];
+
+        const ok = await zpConfirm(
+            I18n.t("dialog.deleteProjectConfirm", "Delete project \"" + name + "\" and all of its files?")
+                .replace("{name}", name)
+        );
+        if(!ok) return;
+
+        try {
+            const r = await fetch("/api/delete_project", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({projectUrl: url}),
+            });
+            const j = await r.json();
+            if(!j || !j.ok) {
+                await zpAlert(I18n.t("dialog.deleteProjectFailed", "Cannot delete the project") + ": " + ((j && j.msg) || ""));
                 return;
             }
+        } catch(e) {
+            await zpAlert(I18n.t("dialog.deleteProjectFailed", "Cannot delete the project") + ": " + e);
+            return;
+        }
 
-            await ProjectPicker.applyProjectUrl(ProjectPicker.view.value);
-        };
+        const selected = await ProjectPicker.refreshOptions();
+        if(selected) {
+            await ProjectPicker.applyProjectUrl(selected);
+            showToast(I18n.t("dialog.projectDeleted", "Project deleted"), false);
+            return;
+        }
+
+        // Nothing left to preview: a reload rebuilds the UI without a project.
+        location.reload();
     }
 
     static async applyProjectUrl(url: string) {
-        localStorage.zepp_player_last_project = url;
+        if(!ProjectPicker.isRealProject(url)) return;
+        writeLocal("zepp_player_last_project", url);
         ProjectPicker.view.value = url;
-        await ProjectPicker.player.finish();
-        await ProjectPicker.player.setProject(ProjectPicker.getProject());
-        await ProjectPicker.player.init();
-        await ChangesWatcher.onProjectChange(this.player);
+        try {
+            await ProjectPicker.player.finish();
+            await ProjectPicker.player.setProject(ProjectPicker.getProject());
+            await ProjectPicker.player.init();
+            await ChangesWatcher.onProjectChange(ProjectPicker.player);
+        } catch(e) {
+            console.error("Project switch failed", e);
+            await zpAlert(I18n.t("dialog.openProjectFailed", "Cannot open the project") + ": " + (e && e.message || e));
+        }
     }
 }

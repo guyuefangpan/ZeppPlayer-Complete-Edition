@@ -1,5 +1,6 @@
 import { getDeviceProfiles } from "../../zepp_player/DeviceProfiles";
 import { CommandPaletteItem } from "../palette/CommandPaletteItem";
+import I18n from "../../zepp_player/i18n.js";
 
 export function getChangeProfileCommands(onCancel: () => any) {
     function applyProfile(name: string) {
@@ -12,7 +13,7 @@ export function getChangeProfileCommands(onCancel: () => any) {
     const profiles = getDeviceProfiles();
     return Object.keys(profiles).map((name) => (
         <CommandPaletteItem value={`profile_${name}`} onSelect={() => applyProfile(name)}>
-            {`Set profile: ${name}`}
+            {`${I18n.t("cmd.setProfile")}${name}`}
         </CommandPaletteItem>
     ))
 }

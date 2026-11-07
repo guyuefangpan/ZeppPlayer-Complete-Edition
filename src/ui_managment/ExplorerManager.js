@@ -16,6 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import I18n from "../zepp_player/i18n.js";
+import {zpPrompt} from "../zepp_player/zpDialogs.js";
+
 export default class ExplorerManager {
     static reloadWidgets = document.getElementById("explorer_reload_widgets");
     static reloadTimers = document.getElementById("explorer_reload_timers");
@@ -24,18 +27,28 @@ export default class ExplorerManager {
 
     static init(player) {
         ExplorerManager.player = player;
-        ExplorerManager.reloadWidgets.onclick = ExplorerManager.doReloadWidgets;
-        ExplorerManager.reloadTimers.onclick = ExplorerManager.doReloadTimers;
+        if(ExplorerManager.reloadWidgets) ExplorerManager.reloadWidgets.onclick = ExplorerManager.doReloadWidgets;
+        if(ExplorerManager.reloadTimers) ExplorerManager.reloadTimers.onclick = ExplorerManager.doReloadTimers;
+        if(ExplorerManager.view) I18n.apply(ExplorerManager.view.closest(".settings_root") || document);
+    }
+
+    static hasRuntime() {
+        return !!ExplorerManager.player && !!ExplorerManager.player.currentRuntime;
     }
 
     static doReloadWidgets() {
+        if(!ExplorerManager.view) return;
         ExplorerManager.view.innerHTML = "";
+        if(!ExplorerManager.hasRuntime()) return;
         ExplorerManager.addWidgetsArray(ExplorerManager.player.currentRuntime.widgets, ExplorerManager.view);
     }
 
     static doReloadTimers() {
-        const timers = ExplorerManager.player.currentRuntime.env.timer.timers;
+        if(!ExplorerManager.view) return;
+        const runtime = ExplorerManager.player && ExplorerManager.player.currentRuntime;
+        const timers = runtime && runtime.env && runtime.env.timer ? runtime.env.timer.timers : null;
         ExplorerManager.view.innerHTML = "";
+        if(!timers) return;
 
         for(let i in timers) {
             if(timers[i] === null) continue;
@@ -45,18 +58,18 @@ export default class ExplorerManager {
             const header = document.createElement("summary");
             let preview = data.func.name;
             if(!preview) preview = data.func.toString().substring(0, 48) + "...";
-            header.innerHTML = "Timer ID" + i.toString();
+            header.innerHTML = I18n.t("explorer.timerId") + i.toString();
             header.innerHTML += " <aside>" + preview + "</aside>";
             widgetView.appendChild(header);
 
             const row1 = document.createElement("div");
             row1.className = "prop_row";
-            row1.innerHTML = `<strong>Delay</strong><span>${data.delay}</span>`;
+            row1.innerHTML = `<strong>${I18n.t("explorer.delay")}</strong><span>${data.delay}</span>`;
             widgetView.append(row1);
 
             const row2 = document.createElement("div");
             row2.className = "prop_row";
-            row2.innerHTML = `<strong>Period</strong><span>${data.period}</span>`;
+            row2.innerHTML = `<strong>${I18n.t("explorer.period")}</strong><span>${data.period}</span>`;
             widgetView.append(row2);
 
             ExplorerManager.view.appendChild(widgetView);
@@ -102,9 +115,9 @@ export default class ExplorerManager {
     }
 
     static makePropEditFunc(widget, prop) {
-        return () => {
+        return async () => {
             const current = widget.config[prop];
-            const input = prompt("Change prop", JSON.stringify(current));
+            const input = await zpPrompt(I18n.t("explorer.changeProp"), JSON.stringify(current));
             if(input === null || input === current) return;
 
             const data = {};

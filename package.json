@@ -1,13 +1,51 @@
 {
   "name": "zeppplayer",
-  "version": "1.7.2",
+  "version": "1.8.14",
   "description": "Unofficial ZeppOS emulator",
-  "main": "app/zepp_player/cli.js",
+  "main": "electron_main.js",
   "scripts": {
     "browser:build": "esbuild --bundle --outdir=app src/index.browser.js",
     "cli:build": "esbuild --bundle --platform=node --external:canvas --outdir=app src/index.cli.js",
     "browser:watch": "esbuild --bundle --outdir=app src/index.browser.js --watch",
-    "build": "npm run browser:build && npm run cli:build"
+    "build": "npm run browser:build && npm run cli:build",
+    "dist:x64": "npm run browser:build && electron-builder --win --x64",
+    "dist:ia32": "npm run browser:build && electron-builder --win --ia32",
+    "dist": "npm run browser:build && electron-builder --win --x64 --ia32"
+  },
+  "build": {
+    "appId": "com.zeppplayer.desktop",
+    "productName": "ZeppPlayer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app/**/*",
+      "projects/**/*",
+      "electron_main.js",
+      "preload.js",
+      "package.json",
+      "assets/**/*",
+      "!**/node_modules/**"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ZeppPlayer"
+    }
   },
   "bin": {
     "zepp-preview": "app/index.cli.js"
@@ -28,6 +66,8 @@
   },
   "devDependencies": {
     "@types/uuid": "^9.0.7",
+    "electron": "^44.4.2",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.19.10",
     "gif-encoder-2": "^1.0.5",
     "normalize-path": "^3.0.0",

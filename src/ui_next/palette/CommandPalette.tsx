@@ -2,6 +2,7 @@ import React from "preact/compat";
 
 import "./CommandPalette.css"
 import {withFilteredPaletteItems} from "./withFilteredPaletteItems";
+import I18n from "../../zepp_player/i18n.js";
 
 /**
  * Command palette context.
@@ -91,7 +92,7 @@ export function CommandPalette(props: PaletteProps) {
             <div className="ui-command-palette" ref={rootRef} onClick={(e) => e.stopPropagation()}>
                 <input type="text"
                        ref={inputRef}
-                       placeholder="Filter..."
+                       placeholder={I18n.t("palette.filter")}
                        value={search} />
                 <div className="ui-command-palette__items">
                     {items}

@@ -1,21 +1,43 @@
+/* localStorage can be unavailable (privacy modes, some WebViews). Never let
+ * that break the whole UI: fall back to an in-memory store. */
+const memory = Object.create(null);
+
+function read(key) {
+    try {
+        const value = localStorage[key];
+        if (value !== undefined) return value;
+    } catch (e) {}
+    return memory[key];
+}
+
+function write(key, value) {
+    memory[key] = value;
+    try {
+        localStorage[key] = value;
+    } catch (e) {}
+}
+
 export default class AppSettingsManager {
     static getString(key, fallback) {
-        if(localStorage[`zp_${key}`] === undefined)
-            return fallback;
-        return localStorage[`zp_${key}`];
+        const value = read(`zp_${key}`);
+        return value === undefined ? fallback : value;
     }
 
     static setString(key, value) {
-        localStorage[`zp_${key}`] = value;
+        write(`zp_${key}`, value);
     }
 
     static getObject(key, fallback) {
-        if(localStorage[`zp_${key}`] === undefined)
+        const value = read(`zp_${key}`);
+        if (value === undefined) return fallback;
+        try {
+            return JSON.parse(value);
+        } catch (e) {
             return fallback;
-        return JSON.parse(localStorage[`zp_${key}`]);
+        }
     }
 
     static setObject(key, value) {
-        localStorage[`zp_${key}`] = JSON.stringify(value);
+        write(`zp_${key}`, JSON.stringify(value));
     }
 }

@@ -16,7 +16,7 @@ export type PropEditorEntryProps = PropsWithPlayer<{
 
 export function PropEditorEntry(props: PropEditorEntryProps) {
     const prettyName = props.name.charAt(0).toUpperCase() +
-        props.name.slice(1).replaceAll("_", " ").toLowerCase();
+        props.name.slice(1).split("_").join(" ").toLowerCase();
 
     const entry = props.player.deviceState[props.name];
 

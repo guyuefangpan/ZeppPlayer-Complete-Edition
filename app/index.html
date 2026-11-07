@@ -15,106 +15,189 @@
 
 <body>
     <div id="toolbar_top">
-        <select id="project_select" title="Project"></select>
-        <select id="player_profile_select" class="bigscreen" title="Device model"></select>
+        <select id="project_select" data-i18n-title="toolbar.project" title="Project"></select>
+        <select id="player_profile_select" class="bigscreen" data-i18n-title="toolbar.profile" title="Device model"></select>
 
         <div class="tools">
-            <span title="WF console (c)" class="material-symbols-outlined bigscreen" id="toggle_console">
+            <!-- Phones: the panels collapse into a single dropdown that shows
+                 the active panel icon; desktop keeps the plain buttons. -->
+            <div class="zp-split" id="zp_split_panels">
+                <span data-i18n-title="toolbar.panels" class="material-symbols-outlined zp-split__toggle" id="zp_split_panels_btn" onclick="zpSplitToggle('panels')">
+                    terminal
+                </span>
+                <div class="zp-split__menu" id="zp_split_panels_menu">
+                    <button type="button" class="zp-split__item" data-panel="view_console" onclick="zpSplitPanel('view_console')">
+                        <span class="material-symbols-outlined">terminal</span>
+                        <span data-i18n="panel.console">Console</span>
+                    </button>
+                    <button type="button" class="zp-split__item" data-panel="view_edit" onclick="zpSplitPanel('view_edit')">
+                        <span class="material-symbols-outlined">edit</span>
+                        <span data-i18n="panel.edit">Controls</span>
+                    </button>
+                    <button type="button" class="zp-split__item" data-panel="view_explorer" onclick="zpSplitPanel('view_explorer')">
+                        <span class="material-symbols-outlined">account_tree</span>
+                        <span data-i18n="panel.explorer">Explorer</span>
+                    </button>
+                    <button type="button" class="zp-split__item" data-panel="code" onclick="zpSplitCode()">
+                        <span class="material-symbols-outlined">code</span>
+                        <span data-i18n="panel.code">Code</span>
+                    </button>
+                </div>
+            </div>
+            <span data-i18n-title="toolbar.console" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_console" onclick="zpPanelTab('view_console', this)">
                 terminal
             </span>
-            <span title="State editor (e)" class="material-symbols-outlined bigscreen" id="toggle_edit">
+            <span data-i18n-title="toolbar.edit" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_edit" onclick="zpPanelTab('view_edit', this)">
                 edit
             </span>
-            <span title="Object explorer" class="material-symbols-outlined bigscreen" id="toggle_explorer">
-                explorer
+            <span data-i18n-title="toolbar.explorer" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_explorer" onclick="zpPanelTab('view_explorer', this)">
+                account_tree
             </span>
-            <hr />
-            <span title="Overview" class="material-symbols-outlined bigscreen" onclick="_setReactPane('overview')">
+            <hr class="zp-desktop-only" />
+            <span data-i18n-title="toolbar.overview" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('overview')">
                 apps
             </span>
-            <span title="Player settings" class="material-symbols-outlined bigscreen" onclick="_setReactPane('settings')">
+            <span data-i18n-title="toolbar.settings" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('settings')">
                 settings
+            </span>
+            <hr class="zp-desktop-only" />
+            <!-- Phones: import / export / folder collapse into one dropdown. -->
+            <div class="zp-split" id="zp_split_files">
+                <span data-i18n-title="toolbar.files" class="material-symbols-outlined zp-split__toggle" id="zp_split_files_btn" onclick="zpSplitToggle('files')">
+                    upload_file
+                </span>
+                <div class="zp-split__menu" id="zp_split_files_menu">
+                    <button type="button" class="zp-split__item" onclick="zpSplitFile('import')">
+                        <span class="material-symbols-outlined">upload_file</span>
+                        <span data-i18n="file.import">Import project</span>
+                    </button>
+                    <button type="button" class="zp-split__item" onclick="zpSplitFile('export')">
+                        <span class="material-symbols-outlined">archive</span>
+                        <span data-i18n="file.export">Export project</span>
+                    </button>
+                    <button type="button" class="zp-split__item" onclick="zpSplitFile('folder')">
+                        <span class="material-symbols-outlined">folder_open</span>
+                        <span data-i18n="file.folder">Projects folder</span>
+                    </button>
+                </div>
+            </div>
+            <span data-i18n-title="toolbar.import" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpImportProject()">
+                upload_file
+            </span>
+            <span data-i18n-title="toolbar.openFolder" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpOpenProjects()">
+                folder_open
+            </span>
+            <span data-i18n-title="toolbar.export" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpExportProject()">
+                archive
+            </span>
+            <span data-i18n-title="toolbar.shortcuts" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('shortcuts')">
+                keyboard
             </span>
         </div>
     </div>
 
     <div class="player_root">
-        <div id="toolbar_side">
-            <span title="Pause render (P)" class="material-symbols-outlined" id="toggle_pause">
+            <div id="toolbar_side">
+            <span data-i18n-title="toolbar.pause" class="material-symbols-outlined" id="toggle_pause">
                 pause
             </span>
-            <span title="Restart watchface/app" class="material-symbols-outlined" id="do_restart">
+            <span data-i18n-title="toolbar.restart" class="material-symbols-outlined" id="do_restart">
                 refresh
             </span>
-            <span title="Create GIF" class="material-symbols-outlined" id="do_gif">
-                gif_box
-            </span>
+            <!-- Phones group record + screenshot into one button whose options
+                 slide out to the right; desktop keeps both icons stacked. -->
+            <div class="zp-side-split" id="zp_split_capture">
+                <span data-i18n-title="toolbar.capture" class="material-symbols-outlined zp-side-split__toggle" id="zp_capture_toggle" onclick="zpSideSplitToggle()">
+                    videocam
+                </span>
+                <div class="zp-side-split__menu" id="zp_split_capture_menu">
+                    <span data-i18n-title="toolbar.video" class="material-symbols-outlined" id="do_video">
+                        videocam
+                    </span>
+                    <span data-i18n-title="toolbar.screenshot" class="material-symbols-outlined" id="do_screenshot">
+                        photo_camera
+                    </span>
+                </div>
+            </div>
             <hr />
-            <span title="Layer scroll up" class="material-symbols-outlined btn_app" id="app_up">
+            <span data-i18n-title="toolbar.appUp" class="material-symbols-outlined btn_app" id="app_up">
                 expand_less
             </span>
-            <span title="Back" class="material-symbols-outlined btn_app" id="app_back">
+            <span data-i18n-title="toolbar.back" class="material-symbols-outlined btn_app" id="app_back">
                 arrow_back
             </span>
-            <span title="Layer scroll down" class="material-symbols-outlined btn_app" id="app_down">
+            <span data-i18n-title="toolbar.appDown" class="material-symbols-outlined btn_app" id="app_down">
                 expand_more
             </span>
-            <span title="Normal UI (1)" class="material-symbols-outlined btn_wf" id="mode_1">
+            <span data-i18n-title="toolbar.mode1" class="material-symbols-outlined btn_wf" id="mode_1">
                 smartphone
             </span>
-            <span title="AOD (2)" class="material-symbols-outlined btn_wf" id="mode_2">
+            <span data-i18n-title="toolbar.mode2" class="material-symbols-outlined btn_wf" id="mode_2">
                 aod
             </span>
-            <span title="Watchface edit (3)" class="material-symbols-outlined btn_wf" id="mode_4">
+            <span data-i18n-title="toolbar.mode4" class="material-symbols-outlined btn_wf" id="mode_4">
                 settings
             </span>
             <hr />
-            <span title="Rotate screen" class="material-symbols-outlined" id="do_rotate">
+            <span data-i18n-title="toolbar.rotate" class="material-symbols-outlined" id="do_rotate">
                 screen_rotation
             </span>
-            <span title="With frame" class="material-symbols-outlined" id="toggle_overlay">
+            <span data-i18n-title="toolbar.overlay" class="material-symbols-outlined" id="toggle_overlay">
                 layers
             </span>
-            <span title="Auto-increment (S)" class="material-symbols-outlined" id="toggle_shift">
+            <span data-i18n-title="toolbar.shift" class="material-symbols-outlined" id="toggle_shift">
                 exposure_plus_1
             </span>
-            <span title="Show event zones (Z)" class="material-symbols-outlined" id="toggle_events">
+            <span data-i18n-title="toolbar.events" class="material-symbols-outlined" id="toggle_events">
                 touch_app
             </span>
-            <span title="Factory reset (W)" class="material-symbols-outlined" id="do_reload">
+            <span data-i18n-title="toolbar.reload" class="material-symbols-outlined" id="do_reload">
                 mop
             </span>
+            <!-- Phones only: the player settings entry point lives here instead
+                 of the top bar. `tune` keeps it distinct from the watchface
+                 settings (gear) button above. -->
+            <span data-i18n-title="toolbar.settings" class="material-symbols-outlined zp-mobile-only" id="toggle_app_settings" onclick="_setReactPane('settings')">
+                tune
+            </span>
+        </div>
+        <div class="left_panel">
+            <div id="view_console" class="base_panel"></div>
+            <div id="view_edit" class="base_panel" style="display: none"></div>
+            <div id="view_explorer" class="base_panel" style="display: none">
+                <div>
+                    <button class="legacy-button" id="explorer_reload_widgets" data-i18n="explorer.widgets">Widgets</button>
+                    <button class="legacy-button" id="explorer_reload_timers" data-i18n="explorer.timers">Timers</button>
+                </div>
+                <div id="explorer_data">
+                    <aside class="caption" data-i18n="explorer.caption">
+                        Use buttons above to (re)load info.
+                    </aside>
+                </div>
+            </div>
         </div>
         <div class="root">
+            <div id="code_panel" class="code_panel"></div>
             <div class="display_base">
                 <canvas id="display"></canvas>
-            </div>
-            <div class="bigscreen settings_root">
-                <div id="view_console" class="base_panel" style="display: none"></div>
-                <div id="view_edit" class="base_panel" style="display: none"></div>
-                <div id="view_explorer" class="base_panel" style="display: none">
-                    <div>
-                        <button class="legacy-button" id="explorer_reload_widgets">Widgets</button>
-                        <button class="legacy-button" id="explorer_reload_timers">Timers</button>
-                    </div>
-                    <div id="explorer_data">
-                        <aside class="caption">
-                            Use buttons above to (re)load info.
-                        </aside>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
 
     <div id="version_box">
         <div>
-            <span>Loading...</span>
+            <span data-i18n="loading">Loading...</span>
         </div>
-        <a href="https://melianmiko.ru">by MelianMiko</a>
+        <a href="https://melianmiko.ru" data-i18n="footer.author">by MelianMiko</a>
     </div>
     <div id="loading" style="display: none;"></div>
     <div id="ng-root"></div>
+    <div id="zp_drop_overlay" class="zp-drop-overlay">
+        <div class="zp-drop-overlay__box">
+            <span class="material-symbols-outlined">upload_file</span>
+            <span data-i18n="drop.hint">Drop a project folder or .zip here to import</span>
+        </div>
+    </div>
 
 	<script src="/app/lib/gif.js"></script>
     <script src="/app/index.browser.js"></script>

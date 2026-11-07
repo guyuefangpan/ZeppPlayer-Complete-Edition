@@ -1,0 +1,55 @@
+.zp-shortcuts {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 420px;
+    user-select: none;
+}
+
+.zp-shortcuts__group h4 {
+    margin: 0 0 8px;
+    font-size: .95em;
+    font-weight: 600;
+    color: var(--accent, #ff7043);
+    letter-spacing: .02em;
+}
+
+.zp-shortcuts__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.zp-shortcuts__row:last-child {
+    border-bottom: none;
+}
+
+.zp-shortcuts__keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 150px;
+    flex-shrink: 0;
+}
+
+.zp-shortcuts__keys kbd {
+    display: inline-block;
+    min-width: 18px;
+    padding: 2px 6px;
+    text-align: center;
+    font-family: Consolas, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--editor-text, #fff);
+    background: var(--editor, #222);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+}
+
+.zp-shortcuts__label {
+    font-size: .9em;
+    opacity: .85;
+}

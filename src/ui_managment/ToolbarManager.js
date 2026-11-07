@@ -16,9 +16,73 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import GifRecorder from "./GifRecorder.js";
+import VideoRecorder from "./VideoRecorder.js";
+import ScreenshotManager from "./ScreenshotManager.js";
 import { getDeviceProfiles } from "../zepp_player/DeviceProfiles";
 import AppSettingsManager from "./AppSettingsManager";
+import I18n from "../zepp_player/i18n.js";
+import { showToast } from "../zepp_player/zpToast.js";
+
+// Defined at module scope: the panel buttons in the top toolbar must work even
+// if the rest of the boot sequence fails, so this can't live inside init().
+window.zpPanelTab = (panelId, el) => {
+    const panels = ["view_console", "view_edit", "view_explorer"];
+    const panelButtons = { view_console: "toggle_console", view_edit: "toggle_edit", view_explorer: "toggle_explorer" };
+    for(const pid of panels) {
+        const panel = document.getElementById(pid);
+        if(panel) panel.style.display = pid === panelId ? "" : "none";
+    }
+    for(const pid of panels) {
+        const btn = document.getElementById(panelButtons[pid]);
+        if(btn) btn.classList.toggle("active", pid === panelId);
+    }
+    if(el) el.classList.add("active");
+
+    // Phones show a single dropdown icon that mirrors the active panel.
+    const splitIcon = document.getElementById("zp_split_panels_btn");
+    if(splitIcon) {
+        const icons = {view_console: "terminal", view_edit: "edit", view_explorer: "account_tree"};
+        splitIcon.textContent = icons[panelId] || "terminal";
+    }
+    const splitMenu = document.getElementById("zp_split_panels_menu");
+    if(splitMenu) {
+        const items = splitMenu.querySelectorAll(".zp-split__item");
+        for(const item of items) {
+            item.classList.toggle("active", item.getAttribute("data-panel") === panelId);
+        }
+    }
+
+    AppSettingsManager.setObject("activePanel", panelId);
+};
+
+/* The code panel is a full-screen modal on phones (see index.css). Kept at
+ * module scope so the toolbar button keeps working when init() fails. */
+window.zpOpenCode = () => {
+    try {
+        if(!document.body.classList.contains("zp-mobile")) return;
+        document.body.classList.add("zp-code-open");
+        const item = document.querySelector('.zp-split__item[data-panel="code"]');
+        if(item) item.classList.add("active");
+    } catch (e) {}
+};
+
+window.zpCloseCode = () => {
+    try {
+        document.body.classList.remove("zp-code-open");
+        const item = document.querySelector('.zp-split__item[data-panel="code"]');
+        if(item) item.classList.remove("active");
+    } catch (e) {}
+};
+
+/* localStorage can throw in restricted WebViews. */
+function readLocal(key, fallback) {
+    try { return localStorage[key] === undefined ? fallback : localStorage[key]; }
+    catch (e) { return fallback; }
+}
+
+function writeLocal(key, value) {
+    try { localStorage[key] = value; } catch (e) {}
+}
 
 export class ToolbarManager {
     static player = null;
@@ -32,7 +96,8 @@ export class ToolbarManager {
     static toggleShift = document.getElementById("toggle_shift");
 
     static doReloadBtn = document.getElementById("do_reload");
-    static doGifBtn = document.getElementById("do_gif");
+    static doVideoBtn = document.getElementById("do_video");
+    static doScreenshotBtn = document.getElementById("do_screenshot");
     static doRotateBtn = document.getElementById("do_rotate");
     static doRestartBtn = document.getElementById("do_restart");
 
@@ -70,32 +135,10 @@ export class ToolbarManager {
     static init(player) {
         ToolbarManager.player = player;
 
-        ToolbarManager.actionToggleEditor = ToolbarManager.bindSwitchBtn({
-            blockId: "toggle_edit",
-            configId: "panelEditorVisible",
-            fallback: false,
-            handler: (v) => {
-                document.getElementById("view_edit").style.display = v ? "" : "none";
-            }
-        });
-
-        ToolbarManager.actionToggleConsole = ToolbarManager.bindSwitchBtn({
-            blockId: "toggle_console",
-            configId: "panelConsoleVisible",
-            fallback: true,
-            handler: (v) => {
-                document.getElementById("view_console").style.display = v ? "" : "none";
-            }
-        });
-
-        ToolbarManager.actionToggleExplorer = ToolbarManager.bindSwitchBtn({
-            blockId: "toggle_explorer",
-            configId: "panelExplorerVisible",
-            fallback: true,
-            handler: (v) => {
-                document.getElementById("view_explorer").style.display = v ? "" : "none";
-            }
-        });
+        // Panel switching lives at module scope; just restore the saved tab.
+        const saved = AppSettingsManager.getObject("activePanel", "view_console");
+        const target = (saved && document.getElementById(saved)) ? saved : "view_console";
+        window.zpPanelTab(target, null);
 
         ToolbarManager.actionToggleOverlay = ToolbarManager.bindSwitchBtn({
             blockId: "toggle_overlay",
@@ -107,8 +150,9 @@ export class ToolbarManager {
         })
 
         // Load saved settings
-        if(localStorage.zepp_player_rotation !== undefined) {
-            ToolbarManager.player.rotation = parseInt(localStorage.zepp_player_rotation);
+        const savedRotation = readLocal("zepp_player_rotation", undefined);
+        if(savedRotation !== undefined) {
+            ToolbarManager.player.rotation = parseInt(savedRotation);
         }
         ToolbarManager._refresh();
 
@@ -120,15 +164,15 @@ export class ToolbarManager {
         ToolbarManager.togglePause.onclick = ToolbarManager.doTogglePause;
         ToolbarManager.toggleShift.onclick = ToolbarManager.doToggleShift;
         ToolbarManager.doReloadBtn.onclick = ToolbarManager.doReload;
-        ToolbarManager.doGifBtn.onclick = ToolbarManager.doGif;
+        if(ToolbarManager.doVideoBtn) ToolbarManager.doVideoBtn.onclick = () => ToolbarManager.doVideo();
+        if(ToolbarManager.doScreenshotBtn) ToolbarManager.doScreenshotBtn.onclick = () => ToolbarManager.doScreenshot();
         ToolbarManager.doRotateBtn.onclick = ToolbarManager.doRotate;
         ToolbarManager.doBackBtn.onclick = ToolbarManager.doBack;
         ToolbarManager.doUpBtn.onclick = () => ToolbarManager.doScroll(-1);
         ToolbarManager.doDownBtn.onclick = () => ToolbarManager.doScroll(1);
         ToolbarManager.doRestartBtn.onclick = () => ToolbarManager.doRestart();
 
-        document.addEventListener("keyup", ToolbarManager.handleKeypress);
-        document.addEventListener("keydown", ToolbarManager.handleControlKey)
+        ToolbarManager.bindKeyboard();
 
         // Add type class
         player.onProjectChanged.add(() => {
@@ -141,8 +185,9 @@ export class ToolbarManager {
         const picker = document.getElementById("player_profile_select");
 
         let current = "mi_band7";
-        if(localStorage.zp_profile_name && profiles[localStorage.zp_profile_name]) {
-            current = localStorage.zp_profile_name;
+        const savedProfile = readLocal("zp_profile_name", "");
+        if(savedProfile && profiles[savedProfile]) {
+            current = savedProfile;
         }
 
         for(const name in profiles) {
@@ -153,7 +198,7 @@ export class ToolbarManager {
         }
         picker.value = current;
         picker.onchange = async () => {
-            localStorage.zp_profile_name = picker.value;
+            writeLocal("zp_profile_name", picker.value);
             player.profileName = picker.value;
             player.imgCache = {};
             await player.overlayTool.init();
@@ -166,15 +211,140 @@ export class ToolbarManager {
         player.profileName = current;
     }
 
-    static handleControlKey(e) {
-        if(e.ctrlKey && e.key === "p"){
-            e.preventDefault();
-            return false;
-        }
+    static isTypingTarget(e) {
+        let t = e && e.target;
+        // Events forwarded from the main process have no target.
+        if(!t || t === document || t === window) t = document.activeElement;
+        if(!t) return false;
+        const tag = (t.tagName || "").toUpperCase();
+        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable === true;
     }
 
-    static handleKeypress(e) {
-        switch(e.key) {
+    /* Resolve a keyboard event to one canonical token.
+     * e.code is often empty in this Electron build, and an active CJK IME
+     * rewrites e.key to "Process" (keyCode 229). The main-process forwarded
+     * event keeps the real key, so it resolves correctly there. */
+    static keyToken(e) {
+        const code = e.code || "";
+        if(code.length === 4 && code.indexOf("Key") === 0) {
+            return code.charAt(3).toLowerCase();
+        }
+        if(code.length === 6 && code.indexOf("Digit") === 0) {
+            return code.charAt(5);
+        }
+        switch(code) {
+            case "Equal":
+            case "NumpadAdd":
+                return e.shiftKey ? "+" : "=";
+            case "Minus":
+            case "NumpadSubtract":
+                return e.shiftKey ? "_" : "-";
+            case "Slash":
+                return e.shiftKey ? "?" : "/";
+            case "Escape":
+                return "Escape";
+            case "F1":
+                return "F1";
+        }
+
+        const key = e.key || "";
+        if(!key || key === "Process" || key === "Unidentified" || key === "Dead") return "";
+        if(key.length === 1) {
+            const lower = key.toLowerCase();
+            if("abcdefghijklmnopqrstuvwxyz".indexOf(lower) >= 0) return lower;
+            return key;
+        }
+        return key;
+    }
+
+    static bindKeyboard() {
+        if(ToolbarManager._keyBound) return;
+        ToolbarManager._keyBound = true;
+
+        /* Desktop: the main process forwards raw key events (see
+         * electron_main.js), so shortcuts also work while an IME composes. */
+        const bridge = window.zpDesktop;
+        if(bridge && typeof bridge.onKeyEvent === "function") {
+            try { bridge.onKeyEvent((payload) => ToolbarManager.onKeyEvent(payload)); } catch (e) {}
+        }
+
+        // Capture phase: a focused child must not be able to swallow shortcuts.
+        document.addEventListener("keydown", (e) => {
+            ToolbarManager.onKeyEvent({
+                key: e.key,
+                code: e.code,
+                ctrlKey: e.ctrlKey,
+                altKey: e.altKey,
+                shiftKey: e.shiftKey,
+                metaKey: e.metaKey,
+                repeat: e.repeat,
+                target: e.target,
+                fromMain: false,
+            });
+        }, true);
+    }
+
+    static onKeyEvent(e) {
+        if(!e || e.repeat) return;
+        const token = ToolbarManager.keyToken(e);
+        if(!token) return;
+
+        const ctrl = !!e.ctrlKey, alt = !!e.altKey, shift = !!e.shiftKey, meta = !!e.metaKey;
+
+        /* The same physical press can arrive twice (DOM + main-process
+         * forwarding). Collapse the duplicate instead of toggling twice. */
+        const sig = token + "|" + (ctrl ? "c" : "") + (alt ? "a" : "") + (shift ? "s" : "") + (meta ? "m" : "");
+        const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        if(sig === ToolbarManager._lastSig && now - ToolbarManager._lastAt < 150) return;
+        ToolbarManager._lastSig = sig;
+        ToolbarManager._lastAt = now;
+
+        // --- Global shortcuts, also while typing in a field ---
+        if(ctrl && alt && token === "s") {
+            ToolbarManager.doScreenshot(shift);
+            return;
+        }
+        if(ctrl && !alt && !shift && token === "p") {
+            if(typeof window._setReactPane === "function") window._setReactPane("command_picker");
+            return;
+        }
+        if(ctrl && !alt && !shift && token === "s") {
+            ToolbarManager.doSaveCode();
+            return;
+        }
+
+        // Leave every other OS/browser combo alone (Ctrl+C, Ctrl+V, Alt+Tab…)
+        if(ctrl || alt || meta) return;
+
+        if(token === "F1") {
+            if(typeof window._setReactPane === "function") window._setReactPane("shortcuts");
+            return;
+        }
+
+        const modalOpen = !!document.querySelector(".ui-backdrop__visible");
+
+        if(token === "Escape") {
+            if(document.body.classList.contains("zp-code-open")) {
+                window.zpCloseCode();
+            } else if(modalOpen) {
+                window._setReactPane("");
+            } else if(ToolbarManager.isTypingTarget(e)) {
+                // Esc while editing should leave the field, not send "back"
+                // to the simulated watch.
+                const el = document.activeElement;
+                if(el && typeof el.blur === "function") el.blur();
+            } else {
+                ToolbarManager.doBack();
+            }
+            return;
+        }
+
+        // Plain keys must not reach the simulator behind an open dialog or
+        // while the user is typing.
+        if(modalOpen) return;
+        if(ToolbarManager.isTypingTarget(e)) return;
+
+        switch(token) {
             case "1":
                 ToolbarManager.doToggleMode(1);
                 return;
@@ -185,39 +355,46 @@ export class ToolbarManager {
                 ToolbarManager.doToggleMode(4);
                 return;
             case "p":
-                if(e.ctrlKey) window._setReactPane("command_picker");
-                return;
-            case "P":
                 ToolbarManager.doTogglePause();
                 return;
-            case "S":
-                ToolbarManager.doToggleShift();
+            case "s":
+                if(shift) ToolbarManager.doToggleShift();
                 return;
-            case "Z":
-                ToolbarManager.doToggleEventZones();
+            case "z":
+                if(shift) ToolbarManager.doToggleEventZones();
                 return;
-            case "W":
-                ToolbarManager.doReload();
+            case "w":
+                if(shift) ToolbarManager.doReload();
+                return;
+            case "r":
+                ToolbarManager.doRestart();
                 return;
             case "c":
-                ToolbarManager.actionToggleConsole();
+                window.zpPanelTab("view_console", null);
                 return;
             case "e":
-                ToolbarManager.actionToggleEditor();
+                window.zpPanelTab("view_edit", null);
+                return;
+            case "x":
+                window.zpPanelTab("view_explorer", null);
                 return;
             case "+":
+            case "=":
                 ToolbarManager.switchProject(1);
                 return;
             case "_":
+            case "-":
                 ToolbarManager.switchProject(-1);
                 return;
-            case "Escape":
-                if(document.querySelector('.ui-backdrop__visible')) {
-                    window._setReactPane("");
-                } else {
-                    ToolbarManager.doBack();
-                }
+            case "?":
+                if(typeof window._setReactPane === "function") window._setReactPane("shortcuts");
                 return;
+        }
+    }
+
+    static doSaveCode() {
+        if(typeof window.zpSaveCode === "function") {
+            try { window.zpSaveCode(); } catch (e) { console.error("Save code failed", e); }
         }
     }
 
@@ -242,20 +419,32 @@ export class ToolbarManager {
         }
     }
 
+    static hasRuntime() {
+        return !!ToolbarManager.player && !!ToolbarManager.player.currentRuntime;
+    }
+
     static async doRestart() {
-        await ToolbarManager.player.restart();
+        if(!ToolbarManager.player || !ToolbarManager.player.projectPath) return;
+        try {
+            await ToolbarManager.player.restart();
+        } catch(e) {
+            console.error("Restart failed", e);
+        }
     }
 
     static doScroll(d) {
+        if(!ToolbarManager.player) return;
         ToolbarManager.player.config.renderScroll += d * 40;
     }
 
     static doBack() {
+        if(!ToolbarManager.hasRuntime()) return;
         ToolbarManager.player.back();
     }
 
     static switchProject(delta) {
         const picker = document.getElementById("project_select");
+        if(!picker || !picker.options.length) return;
         const current = picker.value;
 
         let index = -1;
@@ -265,41 +454,59 @@ export class ToolbarManager {
                 break;
             }
         }
+        if(index < 0) index = 0;
 
-        index += delta;
-        if(!picker.options[index]) return;
+        const count = picker.options.length;
+        for(let step = 1; step <= count; step++) {
+            const i = ((index + delta * step) % count + count) % count;
+            if(i === index) return;
+            const next = picker.options[i].value;
+            // Skip pseudo options that only open dialogs.
+            if(!next || next.charAt(0) === "<") continue;
 
-        console.log("switch to", picker.options[index].value);
-        picker.value = picker.options[index].value;
-
-        // noinspection JSCheckFunctionSignatures
-        picker.onchange();
+            picker.value = next;
+            // noinspection JSCheckFunctionSignatures
+            if(typeof picker.onchange === "function") picker.onchange();
+            return;
+        }
     }
 
     static doRotate() {
-        ToolbarManager.player.rotation = (ToolbarManager.player.rotation + 90) % 360;
-        localStorage.zepp_player_rotation = ToolbarManager.player.rotation;
-        ToolbarManager.player.currentRuntime.refresh_required = "ui";
+        const player = ToolbarManager.player;
+        if(!player) return;
+        player.rotation = (player.rotation + 90) % 360;
+        writeLocal("zepp_player_rotation", player.rotation);
+        if(player.currentRuntime) player.currentRuntime.refresh_required = "ui";
     }
 
     static doToggleMode(val) {
         const player = ToolbarManager.player;
-        player.setRenderLevel(val).then(() => ToolbarManager._refresh());
+        if(!player || !player.appConfig) return;
+        if(player.appConfig.app.appType !== "watchface") {
+            showToast(I18n.t("shortcuts.modeWatchfaceOnly"), false, 2600);
+            return;
+        }
+        player.setRenderLevel(val)
+            .then(() => ToolbarManager._refresh())
+            .catch((e) => console.warn("Set render level failed", e));
     }
 
     static doTogglePause() {
         const player = ToolbarManager.player;
+        if(!player || !player.currentRuntime) return;
         player.currentRuntime.setPause(!player.currentRuntime.uiPause);
         ToolbarManager._refresh();
     }
 
     static doToggleEventZones() {
+        if(!ToolbarManager.player || !ToolbarManager.player.config) return;
         const config = ToolbarManager.player.config;
         config.showEventZones = !config.showEventZones;
         ToolbarManager._refresh();
     }
 
     static doToggleShift() {
+        if(!ToolbarManager.player || !ToolbarManager.player.config) return;
         const config = ToolbarManager.player.config;
         config.withAutoIncrement = !config.withAutoIncrement;
         ToolbarManager._refresh();
@@ -307,13 +514,55 @@ export class ToolbarManager {
 
     static doReload() {
         const player = ToolbarManager.player;
+        if(!player || !player.currentRuntime) return;
         player.currentRuntime.persistent.wipe();
         player.init();
     }
 
-    static async doGif() {
-        const gifRecorder = new GifRecorder(ToolbarManager.player);
-        await gifRecorder.record();
-        gifRecorder.export();
+    static _videoRecorder = null;
+
+    /* First click starts the recording, the next one stops and saves it. */
+    static async doVideo() {
+        if(!ToolbarManager.hasRuntime()) return;
+
+        const current = ToolbarManager._videoRecorder;
+        try {
+            if(current && current.isRecording()) {
+                ToolbarManager._setVideoRecording(false);
+                await current.stop();
+                ToolbarManager._videoRecorder = null;
+                await current.export();
+                return;
+            }
+            if(current && current.isBusy()) return;
+
+            const recorder = new VideoRecorder(ToolbarManager.player);
+            await recorder.start();
+            ToolbarManager._videoRecorder = recorder;
+            ToolbarManager._setVideoRecording(true);
+            showToast(I18n.t("dialog.recordingStarted", "Recording… click again to stop"), false, 3200);
+        } catch(e) {
+            ToolbarManager._videoRecorder = null;
+            ToolbarManager._setVideoRecording(false);
+            console.error("Video recording failed", e);
+            showToast(String(e && e.message || e), true);
+        }
+    }
+
+    static _setVideoRecording(on) {
+        const btn = ToolbarManager.doVideoBtn;
+        if(btn) {
+            btn.classList.toggle("active", on);
+            btn.textContent = on ? "stop_circle" : "videocam";
+        }
+        // The grouped phone button mirrors the recording state.
+        const toggle = document.getElementById("zp_capture_toggle");
+        if(toggle) toggle.textContent = on ? "stop_circle" : "videocam";
+    }
+
+    static async doScreenshot(toProject) {
+        await ScreenshotManager.captureAndNotify(ToolbarManager.player, {
+            dest: toProject ? "project" : "pictures",
+        });
     }
 }

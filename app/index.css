@@ -100,21 +100,16 @@ aside.caption {
 
 .root {
     display: flex;
-    flex-wrap: wrap;
+    flex: 1;
     margin-top: 8px;
     margin-left: 8px;
-    width: calc(100% - 48px - 8px);/* <-- for some fun reason root takes width of its parent as if toolbar and its margin never existed*/
+    margin-right: 8px;
     justify-content: center;
+    gap: 8px;
 }
 
 .root > * {
     margin-bottom: 8px;
-    margin-right: 8px;
-}
-
-.root > .settings_root {
-    min-width: 300px;
-    flex: 1;
 }
 
 .player_root {
@@ -132,6 +127,11 @@ aside.caption {
     display: none;
 }
 
+/* Shown on phones only; the desktop chrome keeps its own entry points. */
+.zp-mobile-only {
+    display: none;
+}
+
 #toolbar_side.watchface > .btn_wf,
 #toolbar_side.app > .btn_app{
     display: block;
@@ -141,6 +141,8 @@ aside.caption {
     left: 0;
     bottom: 100%;
     display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px;
     overflow-x: auto;
 }
@@ -163,6 +165,7 @@ hr {
 }
 
 #toolbar_side > span,
+#toolbar_side .zp-side-split__menu > span,
 #toolbar_top > .tools > span {
     max-width: 24px;
     min-width: 24px;
@@ -178,18 +181,38 @@ hr {
 }
 
 #toolbar_top > .tools > span:hover,
-#toolbar_side > span:hover {
+#toolbar_side > span:hover,
+#toolbar_side .zp-side-split__menu > span:hover {
     background-color: rgba(0, 0, 0, 0.2);
 }
 
 #toolbar_top > .tools > span.active,
-#toolbar_side > span.active {
+#toolbar_side > span.active,
+#toolbar_side .zp-side-split__menu > span.active {
     color: var(--accent);
     background-color: rgba(0, 0, 0, 0.2);
 }
 
+/* Desktop keeps the record and screenshot icons as two separate sidebar
+ * entries: the wrapper and its menu are laid out as if they were not there. */
+.zp-side-split,
+.zp-side-split__menu {
+    display: flex;
+    flex-direction: column;
+}
+
+.zp-side-split__toggle {
+    display: none;
+}
+
 .tools {
     display: flex;
+}
+
+/* Grouped toolbar buttons. Desktop keeps the individual icons, phones swap
+ * them for a single dropdown (see the phone section below). */
+.zp-split {
+    display: none;
 }
 
 select, input, .legacy-button {
@@ -315,6 +338,54 @@ a:link, a:visited {
     font-size: .95em;
 }
 
+/* ===== New 3-column layout ===== */
+
+.left_panel {
+    width: 300px;
+    min-width: 260px;
+    max-width: 340px;
+    margin: 8px 0 0 8px;
+    display: flex;
+    flex-direction: column;
+    align-self: flex-start;
+}
+
+.left_panel .base_panel {
+    flex: 1;
+    min-height: 120px;
+    min-width: 0;
+    margin-bottom: 0;
+    max-height: none;
+    height: calc(100vh - 176px);
+}
+
+/* code panel (persistent) */
+.code_panel {
+    flex: 1 1 46%;
+    min-width: 320px;
+    max-width: 640px;
+    min-height: 320px;
+    height: calc(100vh - 130px);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 8px 0 rgba(0, 0, 0, .1);
+}
+
+/* device display moved to right */
+.display_base {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    min-width: 176px;
+    padding: 8px;
+    background: var(--panel);
+    border-radius: 8px;
+    box-shadow: 0 8px 8px 0 rgba(0, 0, 0, .1);
+}
+
+.display_base canvas {
+    display: block;
+}
+
 /* Mobile */
 
 @media all and (max-width: 360px) {
@@ -362,4 +433,738 @@ input::-webkit-inner-spin-button {
 
 input[type=number] {
     -moz-appearance:textfield; /* Firefox */
+}
+
+/* Console toolbar and scrollable output */
+
+#view_console {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.console_toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, .1);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.console_toolbar > span {
+    margin-right: 0 !important;
+    padding: 4px;
+    max-width: none;
+    min-width: 0;
+    max-height: none;
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: .65;
+    border-radius: 4px;
+    transition: background-color .2s, opacity .2s;
+}
+
+.console_toolbar > span:hover {
+    background: rgba(255, 255, 255, .1);
+    opacity: 1;
+}
+
+.console_toolbar > span.active {
+    color: var(--accent);
+    opacity: 1;
+}
+
+.console_output {
+    flex: 1;
+    overflow: auto;
+    padding: 5px 10px;
+    white-space: nowrap;
+}
+
+.console_line--link {
+    cursor: pointer;
+}
+
+.console_line--link:hover {
+    background: rgba(255, 255, 255, .06);
+}
+
+/* Drag & drop import overlay */
+
+.zp-drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99998;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, .55);
+    pointer-events: none;
+}
+
+.zp-drop-overlay.visible {
+    display: flex;
+}
+
+.zp-drop-overlay__box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 36px 56px;
+    border: 2px dashed var(--accent);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--panel-text);
+    font-size: 15px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, .5);
+}
+
+.zp-drop-overlay__box > .material-symbols-outlined {
+    font-size: 42px;
+    color: var(--accent);
+}
+
+/* ===== Phone layout =====
+ *
+ * One fixed-height strip of columns that scrolls sideways: the icon bar,
+ * a column with the console directly above the watch canvas, then the code
+ * editor. The page itself never scrolls vertically; each panel scrolls
+ * inside its own box.
+ */
+
+body.zp-mobile {
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+/* The <=360px rule above hides .bigscreen; on a phone every control must
+ * stay reachable, so restore them inside the mobile mode. */
+body.zp-mobile .bigscreen {
+    display: inline-block;
+}
+
+body.zp-mobile select.bigscreen {
+    display: block;
+}
+
+body.zp-mobile #toolbar_top {
+    flex: 0 0 auto;
+    position: static;
+    z-index: 6;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    padding-top: calc(4px + env(safe-area-inset-top));
+    gap: 4px;
+    flex-wrap: nowrap;
+    /* The <=550px desktop rule right-aligns the bar; with nowrap content that
+     * wider than the screen it pushes the leading selects past the left edge,
+     * where they can never be scrolled back into view. */
+    justify-content: flex-start;
+    align-items: center;
+    /* The project and device pickers stay pinned; only the icon strip scrolls,
+     * so the user never loses the current project off-screen. */
+    overflow: hidden;
+    background-color: var(--panel);
+}
+
+body.zp-mobile #toolbar_top > .tools {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+body.zp-mobile #toolbar_top > .tools::-webkit-scrollbar {
+    height: 0;
+}
+
+body.zp-mobile #toolbar_top > .tools {
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+body.zp-mobile #toolbar_top > .tools > span {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    padding: 4px;
+    font-size: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+body.zp-mobile #toolbar_top > .tools > hr {
+    flex: 0 0 auto;
+    width: 0;
+    height: 20px;
+    margin: 0 2px;
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, .15);
+}
+
+/* Desktop-only toolbar buttons (overview, shortcuts, ...) stay reachable on
+ * a desktop but only add clutter on a phone. */
+body.zp-mobile .zp-desktop-only {
+    display: none !important;
+}
+
+/* Grouped toolbar dropdown. The toggle keeps the size of a plain icon button
+ * and mirrors the active panel; the menu is positioned in JS so the toolbar's
+ * own scrolling can never clip it. */
+body.zp-mobile .zp-split {
+    display: inline-flex;
+    position: relative;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+/* The panel and file dropdowns used to sit flush against each other once the
+ * desktop separators were hidden. Auto margins keep the pair centred in the
+ * space left of the device picker, and collapse to 0 when the strip has to
+ * scroll, so the first button never gets clipped. */
+body.zp-mobile #zp_split_panels {
+    margin-left: auto;
+}
+
+body.zp-mobile #zp_split_files {
+    margin-left: 12px;
+    margin-right: auto;
+}
+
+body.zp-mobile .zp-split__toggle {
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    padding: 4px;
+    margin: 2px;
+    font-size: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, .07);
+}
+
+/* Small caret so the grouped button reads as a dropdown instead of looking
+ * like the plain panel icon it replaced. */
+body.zp-mobile .zp-split__toggle::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 0;
+    height: 0;
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-top: 4px solid currentColor;
+    opacity: .7;
+}
+
+body.zp-mobile .zp-split.open .zp-split__toggle,
+body.zp-mobile .zp-split__toggle:hover {
+    background-color: rgba(0, 0, 0, .2);
+    color: var(--accent);
+}
+
+body.zp-mobile .zp-split__menu {
+    display: none;
+    position: fixed;
+    z-index: 90;
+    min-width: 150px;
+    padding: 4px;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--panel);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+}
+
+body.zp-mobile .zp-split.open .zp-split__menu {
+    display: flex;
+}
+
+body.zp-mobile .zp-split__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--panel-text);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+body.zp-mobile .zp-split__item > .material-symbols-outlined {
+    font-size: 20px;
+    line-height: 1;
+}
+
+body.zp-mobile .zp-split__item:hover,
+body.zp-mobile .zp-split__item:active {
+    background: rgba(255, 255, 255, .1);
+}
+
+body.zp-mobile .zp-split__item.active {
+    color: var(--accent);
+}
+
+body.zp-mobile #project_select {
+    flex: 0 0 auto;
+    height: 32px;
+    padding: 4px 8px;
+    font-size: 13px;
+    margin: 2px;
+    max-width: 38vw;
+}
+
+body.zp-mobile #player_profile_select {
+    flex: 0 0 auto;
+    height: 32px;
+    padding: 4px 6px;
+    font-size: 12px;
+    margin: 2px;
+    max-width: 30vw;
+}
+
+/* Portrait phones stack the console over the canvas. Landscape phones get
+ * two columns instead: a full-height console on the left and the watch on
+ * the right, which gives the canvas the whole screen height instead of a
+ * cramped half. */
+
+body.zp-mobile .player_root {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+        "tools console"
+        "tools display";
+    gap: 6px;
+    margin: 0;
+    padding: 4px 6px;
+    min-height: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* Landscape phones have the width to spare: the console takes the left half
+ * and the watch sits on the right, instead of stacking them. Portrait keeps
+ * console-over-canvas, where a side-by-side split would squeeze both. */
+body.zp-mobile.zp-landscape .player_root {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "tools console display";
+    padding-left: calc(6px + env(safe-area-inset-left));
+    padding-right: calc(6px + env(safe-area-inset-right));
+}
+
+body.zp-mobile .root {
+    display: contents;
+}
+
+body.zp-mobile #toolbar_side {
+    grid-area: tools;
+    flex-direction: column;
+    width: 40px;
+    min-width: 40px;
+    height: 100%;
+    margin: 0;
+    padding: 2px;
+    border-radius: 8px;
+    background-color: var(--panel);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    box-sizing: border-box;
+}
+
+body.zp-mobile #toolbar_side::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* Every sidebar entry is exactly 32x32 *including* its padding. The old
+ * content-box sizing made a button 40px wide inside a 36px column, so it was
+ * clipped on the right and both the glyph and the active mask sat off-centre. */
+body.zp-mobile #toolbar_side > span,
+body.zp-mobile .zp-side-split__toggle {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 32px;
+    min-width: 32px;
+    max-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    margin: 4px auto;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
+    align-items: center;
+    justify-content: center;
+}
+
+/* `display` cannot be forced on .btn_wf/.btn_app here: their visibility is
+ * driven by the app type class on #toolbar_side. */
+body.zp-mobile #toolbar_side > span:not(.btn_wf):not(.btn_app),
+body.zp-mobile .zp-side-split__toggle {
+    display: inline-flex;
+}
+
+/* `#toolbar_side.watchface > .btn_wf` sets display:block with a higher
+ * specificity than the rule above, which left these three glyphs stuck in the
+ * top-left corner of their 32px box. Re-state the flex centering per app type
+ * so the hidden entries stay hidden. */
+body.zp-mobile #toolbar_side.watchface > .btn_wf,
+body.zp-mobile #toolbar_side.app > .btn_app {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Section breaks: the line needs room to breathe and must sit dead centre
+ * between the last entry above and the first entry below (both of those keep
+ * 4px outer margins), hence the symmetric 6px. */
+body.zp-mobile #toolbar_side > hr {
+    flex: 0 0 auto;
+    width: 28px;
+    margin: 6px auto;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, .12);
+}
+
+/* Pause / restart / record read as looser than the rest of the bar because
+ * their glyphs are short and thin: at the uniform 40px step the empty space
+ * between them looked wider than below. A 36px step plus a larger glyph evens
+ * out the visible rhythm; the first separator below compensates for the
+ * tighter bottom margin so it still sits centred in the section gap. */
+body.zp-mobile #toolbar_side > #toggle_pause,
+body.zp-mobile #toolbar_side > #do_restart {
+    margin: 2px auto;
+    font-size: 24px;
+}
+
+body.zp-mobile #toolbar_side > .zp-side-split {
+    margin: 2px auto;
+}
+
+body.zp-mobile #toolbar_side > .zp-side-split > .zp-side-split__toggle {
+    font-size: 24px;
+}
+
+body.zp-mobile #toolbar_side > hr:first-of-type {
+    margin: 8px auto 6px;
+}
+
+body.zp-mobile .zp-mobile-only {
+    display: inline-flex;
+}
+
+/* Phones group record + screenshot behind one icon; tapping it slides the two
+ * choices out to the right of the bar instead of pushing the bar wider. */
+body.zp-mobile .zp-side-split {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+    width: 32px;
+    margin: 4px auto;
+}
+
+body.zp-mobile .zp-side-split__toggle {
+    position: relative;
+    /* The wrapper already owns the vertical rhythm; a margin here would add
+     * 4px above and below just this one entry. */
+    margin: 0;
+    cursor: pointer;
+    overflow: hidden;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, .07);
+}
+
+body.zp-mobile .zp-side-split__toggle::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 0;
+    height: 0;
+    border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+    border-left: 4px solid currentColor;
+    opacity: .7;
+}
+
+body.zp-mobile .zp-side-split.open .zp-side-split__toggle,
+body.zp-mobile .zp-side-split__toggle:hover {
+    background-color: rgba(0, 0, 0, .2);
+    color: var(--accent);
+}
+
+body.zp-mobile .zp-side-split__menu {
+    display: none;
+    position: fixed;
+    z-index: 90;
+    flex-direction: row;
+    /* Record and screenshot sit side by side here; a 10px gap still let their
+     * rounded hover masks read as one block. */
+    gap: 28px;
+    padding: 4px;
+    background: var(--panel);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+}
+
+body.zp-mobile .zp-side-split.open .zp-side-split__menu {
+    display: flex;
+}
+
+/* The desktop sizing rule is anchored on #toolbar_side, so the phone override
+ * has to carry the same id to actually win (it previously stayed 24px wide
+ * with 6px padding, which squeezed and clipped the two glyphs). */
+body.zp-mobile #toolbar_side .zp-side-split__menu > span {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 32px;
+    min-width: 32px;
+    max-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    margin: 0;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 8px;
+    /* The two popover entries are plain glyphs on the popover surface; the
+     * light grey plate made them read as two separate chips. */
+    background-color: transparent;
+}
+
+/* Touch devices keep :hover after a tap, which would paint the dark mask on
+ * these two entries right after use. */
+body.zp-mobile #toolbar_side .zp-side-split__menu > span:hover,
+body.zp-mobile #toolbar_side .zp-side-split__menu > span:active {
+    background-color: transparent;
+}
+
+body.zp-mobile .left_panel {
+    grid-area: console;
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+    align-self: stretch;
+}
+
+body.zp-mobile #view_console,
+body.zp-mobile #view_edit,
+body.zp-mobile #view_explorer {
+    flex: 1 1 auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    resize: none;
+    box-sizing: border-box;
+}
+
+body.zp-mobile .display_base {
+    grid-area: display;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 4px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+body.zp-mobile .display_base canvas {
+    margin: 0 auto;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Code preview: a full-screen modal on phones, opened from the panels
+ * dropdown. The panel stays mounted while hidden so edits are kept when it is
+ * reopened. */
+body.zp-mobile #code_panel {
+    display: none;
+}
+
+body.zp-mobile.zp-code-open #code_panel {
+    display: block;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 70;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--editor);
+    overflow: hidden;
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc__head {
+    padding-top: calc(6px + env(safe-area-inset-top));
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc__status {
+    padding-bottom: calc(2px + env(safe-area-inset-bottom));
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc__root {
+    display: none;
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc__iconbtn {
+    display: inline-flex;
+}
+
+/* File tree as a drawer: the editor keeps the full screen width and the tree
+ * slides over it only while picking a file. */
+body.zp-mobile.zp-code-open #code_panel .zpc__tree {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(78%, 320px);
+    min-width: 0;
+    z-index: 6;
+    background: #1b1b1b;
+    box-shadow: 6px 0 18px rgba(0, 0, 0, .55);
+    transform: translateX(-102%);
+    transition: transform .18s ease;
+    padding-top: 4px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc__file {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body.zp-mobile.zp-code-open #code_panel .zpc--tree-open .zpc__tree {
+    transform: translateX(0);
+}
+
+body.zp-mobile #version_box {
+    flex: 0 0 auto;
+    position: static;
+    text-align: center;
+    margin: 0;
+    padding: 2px 0 calc(4px + env(safe-area-inset-bottom));
+    font-size: .7em;
+}
+
+body.zp-mobile #version_box > div {
+    margin: 2px 0;
+}
+
+/* Panels and dialogs */
+
+body.zp-mobile .ui-backdrop {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+}
+
+body.zp-mobile .ui-modal {
+    margin: 8px;
+    max-height: calc(100% - 16px);
+    width: calc(100% - 16px);
+    box-sizing: border-box;
+}
+
+body.zp-mobile .ui-modal__title {
+    margin: 16px 12px;
+}
+
+body.zp-mobile .ui-modal__actions {
+    margin: 12px 4px 8px;
+}
+
+body.zp-mobile .ui-command-palette {
+    width: auto;
+    max-width: 100%;
+    margin: 8px;
+    box-sizing: border-box;
+}
+
+body.zp-mobile .zp-shortcuts {
+    min-width: 0;
+}
+
+body.zp-mobile .zp-shortcuts__keys {
+    min-width: 100px;
+}
+
+body.zp-mobile .zp-shortcuts__label {
+    font-size: .82em;
+}
+
+body.zp-mobile .zp-overview__card,
+body.zp-mobile .zp-overview__card > canvas,
+body.zp-mobile .zp-overview__card > img,
+body.zp-mobile .zp-overview__card > span {
+    max-width: 110px;
+}
+
+body.zp-mobile .zpc__tree {
+    width: 110px;
+    min-width: 92px;
+}
+
+body.zp-mobile #view_explorer .prop_row strong {
+    min-width: 100px;
 }

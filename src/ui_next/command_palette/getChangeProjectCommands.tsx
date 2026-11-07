@@ -1,6 +1,7 @@
 import {ProjectPicker} from "../../ui_managment/ProjectPicker";
 import {CommandPaletteItem} from "../palette/CommandPaletteItem";
 import React from "preact/compat";
+import I18n from "../../zepp_player/i18n.js";
 
 export function getChangeProjectCommands(onSelect: () => any) {
     const projects = ProjectPicker.projects;
@@ -14,7 +15,7 @@ export function getChangeProjectCommands(onSelect: () => any) {
         <CommandPaletteItem key={i}
                             value={v.url}
                             onSelect={() => applyProject(v.url)}>
-            {`Set project: ${v.title}`}
+            {`${I18n.t("cmd.setProject")}${v.title}`}
         </CommandPaletteItem>
     ))
 }
