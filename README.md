@@ -204,7 +204,7 @@ git diff upstream/master -- <某个文件>
   - `/api/server_info` 枚举局域网地址。
   - `before-input-event` 转发按键（见 1.10）。
 - **`Windows/preload.js`（新增，+23）**：`contextBridge` 暴露 `zpDesktop.isDesktop`、`getPathForFile`（`webUtils`）、`onKeyEvent`。
-- **`Windows/package.json`（+43/−3）**：版本 1.7.2 → 1.8.14，`main` 指向 `Windows/electron_main.js`；新增 `dist:x64` / `dist:ia32` / `dist` 脚本与 electron-builder 配置（NSIS、可选安装目录、桌面与开始菜单快捷方式、`Windows/assets/icon.ico`）；新增 `electron`、`electron-builder` 依赖。
+- **`Windows/package.json`（+43/−3）**：版本 1.7.2 → 1.8.15，`main` 指向 `Windows/electron_main.js`；新增 `dist:x64` / `dist:ia32` / `dist` 脚本与 electron-builder 配置（NSIS、可选安装目录、桌面与开始菜单快捷方式、`Windows/assets/icon.ico`）；新增 `electron`、`electron-builder` 依赖。
 - **接口清单**（桌面与安卓一致）：`/api/list_projects`、`/api/import_project`、`/api/import_zip_upload`、`/api/import_path`、`/api/delete_project`、`/api/export_project`、`/api/download_project`、`/api/open_projects`、`/api/choose_projects_dir`、`/api/set_projects_dir`、`/api/folder_chooser`、`/api/save_preview`、`/api/save_text`、`/api/change_count`、`/api/watch`、`/api/server_info`。
 
 ---
@@ -379,7 +379,7 @@ git diff upstream/master -- <某个文件>
 | `Windows/src/zepp_player/zepp_env/MessagingMock.js` | +69 | messaging / hmBle 模拟 |
 | `Windows/electron_main.js` | +956 | Electron 主进程、全部后端接口、按键转发、局域网地址、示例播种 |
 | `Windows/preload.js` | +23 | `zpDesktop` 桥（拖拽路径、按键事件） |
-| `Windows/package.json` | +43 / −3 | 版本 1.8.14、`main`、打包脚本、electron-builder 配置 |
+| `Windows/package.json` | +43 / −3 | 版本 1.8.15、`main`、打包脚本、electron-builder 配置 |
 | `Windows/package-lock.json` | +5543 / −124 | 依赖锁定 |
 | `Windows/assets/icon.ico` | 新增 | Electron 应用图标 |
 | `Android/AndroidManifest.xml` | +34 | 权限、Activity、版本号 |
