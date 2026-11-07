@@ -1,33 +1,28 @@
 *~
 
-/app/index.browser.*
-/app/index.cli.*
-/ZeppPlayer.exe
-
-/_*
-/projects/*
-/win32_server/build
-/win32_server/dist
-/lib
-/build
-/dist
-/venv
+# Windows desktop
+/Windows/app/index.browser.*
+/Windows/app/index.cli.*
+/Windows/ZeppPlayer.exe
+/Windows/release
+/Windows/_*
+/Windows/projects/*
+!/Windows/projects/demo
+/Windows/lib
+/Windows/build
+/Windows/dist
+/Windows/venv
 
 node_modules
 __pycache__
 .DS_Store
 .~lock*
-
-!/projects/demo
 !.empty
 
-# Desktop packaging output
-/release
-
 # Android build output and signing material
-/ZeppPlayerAndroid/build
-/ZeppPlayerAndroid/assets
-/ZeppPlayerAndroid/release
-/ZeppPlayerAndroid/keystore
+/Android/build
+/Android/assets
+/Android/release
+/Android/keystore
 *.apk
 *.keystore

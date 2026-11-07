@@ -2,9 +2,25 @@
 
 > 基于 [MelianMiko/ZeppPlayer](https://github.com/MelianMiko/ZeppPlayer) 的非官方增强版本。**桌面端与手机端都做了大量改造**：桌面端新增代码预览/修改面板、快捷键面板、控制台工具栏、视频录制、导入导出入口、中文界面与全新的多栏布局；手机端重做响应式布局与顶栏交互；另外附带一个独立的安卓 App。
 
-**对比基线**：上游 `melianmiko/ZeppPlayer` 的 `master` 分支，HEAD 为 `7fcd82d`（2024-05-22，`package.json` 版本 1.7.2）。
+**对比基线**：上游 `melianmiko/ZeppPlayer` 的 `master` 分支，HEAD 为 `7fcd82d`（2024-05-22，上游 `package.json` 版本 1.7.2）。
 
-**变更规模**：共 **65 个文件**（新增 36、修改 27、删除 2），**+14779 / −802 行**；其中代码与资源 64 个文件（+14337 / −802），本文档单独计 442 行。
+**变更规模**：相对上游的代码改动共 **65 个文件**（新增 36、修改 27、删除 2），**+14779 / −802 行**。目录重排（`Windows/`、`Android/`）只移动路径，不改变文件内容。
+
+## 仓库结构
+
+```
+ZeppPlayer-Complete-Edition/
+├─ Android/    安卓 App：Java 源码、清单、资源、打包脚本
+├─ Windows/    桌面端：Electron 主进程、前端源码、Web 资源、示例项目
+├─ README.md   本文档（含上游原文附录）
+├─ LICENSE     GPL-3.0
+└─ .gitignore
+```
+
+- `Windows/` 下：`electron_main.js`、`preload.js`、`package.json`、`src/`（前端源码）、`app/`（页面与资源，`index.browser.js` 由构建生成）、`assets/`、`projects/demo/`。
+- `Android/` 下：`build.ps1`、`AndroidManifest.xml`、`java/`、`res/`、`test/`。
+
+> `.gitignore` 与 `LICENSE` 必须留在根目录才能生效 / 满足 GPL 要求，因此没有放进子目录。
 
 本文档的每一条都对应仓库中的实际 diff，可用下面两条命令复核：
 
@@ -31,13 +47,13 @@ git diff upstream/master -- <某个文件>
 
 ## 1.1 布局：从"画面 + 右侧面板"改为四栏
 
-原版桌面是 `图标栏 | 手表画面 | 面板（.bigscreen）`，面板只是画面右侧的一块附加区域。本版把 `app/index.html` 的面板容器移出 `.bigscreen`，变成固定的 `.left_panel`，并在画面左侧新增常驻代码面板：
+原版桌面是 `图标栏 | 手表画面 | 面板（.bigscreen）`，面板只是画面右侧的一块附加区域。本版把 `Windows/app/index.html` 的面板容器移出 `.bigscreen`，变成固定的 `.left_panel`，并在画面左侧新增常驻代码面板：
 
 ```
 [图标栏 #toolbar_side] [面板列 .left_panel] [代码面板 #code_panel] [手表画面 .display_base]
 ```
 
-- **面板列**（`app/index.css` `.left_panel`）：宽 300px（260–340 自适应），三个面板互斥显示，高度 `calc(100vh - 176px)`，可独立滚动。
+- **面板列**（`Windows/app/index.css` `.left_panel`）：宽 300px（260–340 自适应），三个面板互斥显示，高度 `calc(100vh - 176px)`，可独立滚动。
 - **代码面板**（`.code_panel`）：`flex: 1 1 46%`，宽 320–640px，高 `calc(100vh - 130px)`，带圆角与阴影。
 - **画面区**（`.display_base`）：固定宽度卡片，独立内边距、背景与阴影，不再被面板挤压。
 - `.root` 改为 `display:flex; gap:8px; justify-content:center`，代码面板与画面作为一个整体居中。
@@ -46,7 +62,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.2 代码预览 / 修改面板（原版完全没有）
 
-原版桌面**没有任何查看或修改项目源码的入口**，只能去外部编辑器打开项目目录。本版新增 `src/ui_next/panel_code/`（`PanelCode.tsx` +285、`PanelCode.css` +176），由 `RootComponent.tsx` 挂载到 `#code_panel`，常驻显示。
+原版桌面**没有任何查看或修改项目源码的入口**，只能去外部编辑器打开项目目录。本版新增 `Windows/src/ui_next/panel_code/`（`PanelCode.tsx` +285、`PanelCode.css` +176），由 `RootComponent.tsx` 挂载到 `#code_panel`，常驻显示。
 
 - **文件树**：从当前项目根目录逐层抓取目录列表（最多 5 层），跳过 `node_modules`、`.git`、`.idea`、`.vs`、`.vscode`、`__pycache__`、`dist`，只列出 `.js`、`.ts`、`.json`、`.css`、`.html`、`.wml`、`.txt`、`.md`；目录与文件分别排序，缩进按层级（每层 14px）。
 - **打开文件**：点击文件 `GET` 读取文本到 `textarea`，关闭拼写检查；桌面端 `wrap="off"`，手机端 `wrap="soft"`。
@@ -61,7 +77,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.3 快捷键面板（原版完全没有）
 
-新增 `src/ui_next/shortcuts/`（`ShortcutsPane.tsx` +81、`ShortcutsPane.css` +55），三组快捷键以 `<kbd>` 卡片列出：
+新增 `Windows/src/ui_next/shortcuts/`（`ShortcutsPane.tsx` +81、`ShortcutsPane.css` +55），三组快捷键以 `<kbd>` 卡片列出：
 
 | 分组 | 快捷键 |
 | --- | --- |
@@ -73,7 +89,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.4 顶栏入口与面板互斥
 
-`app/index.html` 顶栏新增四个桌面按钮（原版只能通过命令面板完成）：
+`Windows/app/index.html` 顶栏新增四个桌面按钮（原版只能通过命令面板完成）：
 
 | 按钮 | 图标 | 行为 |
 | --- | --- | --- |
@@ -124,7 +140,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.8 导入、导出与拖拽
 
-`src/index.browser.js`（+487/−27）按运行环境分流：
+`Windows/src/index.browser.js`（+487/−27）按运行环境分流：
 
 - **导入**
   - 桌面（`window.zpDesktop` 存在）：`GET /api/import_project?lang=<locale>`，弹原生目录/文件对话框。
@@ -142,19 +158,19 @@ git diff upstream/master -- <某个文件>
   - 首次点击开始、再次点击停止并保存；录制中按钮图标变为 `stop_circle`，手机端合并按钮同步。
   - 编码优先 `video/mp4;codecs=avc1.42E01E` → `video/mp4` → `video/webm;codecs=vp8` → `vp9` → `webm`。
   - 30 fps；码率在 1.5–4 Mbps 之间按画布尺寸自适应。
-  - **外框合成**：新增 `app/recording_frame.png`（330×948，屏幕开孔 207×526，位于 (61,202)），把手表画布合成为实拍表壳效果；`mi_band7` 画面比例 192:490 与开孔匹配。
+  - **外框合成**：新增 `Windows/app/recording_frame.png`（330×948，屏幕开孔 207×526，位于 (61,202)），把手表画布合成为实拍表壳效果；`mi_band7` 画面比例 192:490 与开孔匹配。
   - 安卓端若只能录出 WebM，先提示"正在转成 MP4"，由 `VideoTranscoder.java` 转码；转码失败才提示已保存为 WebM。
 - **截图**：新增 `ScreenshotManager.js`（+134）。
   - 截取 `#display` 画布为 PNG，复制到剪贴板（`ClipboardItem`，失败不影响落盘）。
   - 落盘：桌面走 `/api/save_preview`，可选"图片目录"或"当前项目"；浏览器/安卓用 Blob 下载。
   - 文件名 `${项目名|screenshot}_${设备型号}_${YYYYMMDD-HHmmss}.png`；写入项目后调用 `ChangesWatcher.hold()` 避免触发重启。
-- 删除 `app/render_fail.png`（旧渲染失败占位图，已无引用）。
+- 删除 `Windows/app/render_fail.png`（旧渲染失败占位图，已无引用）。
 
 ## 1.10 键盘：输入法下仍可用、只触发一次
 
 `ToolbarManager.js`（+326/−77）重写了整个按键处理：
 
-- **输入法问题**：微软拼音等 CJK 输入法组合输入时，渲染进程只能收到 `keyCode 229` / `key: "Process"`，页面监听拿不到真实按键。`electron_main.js` 用 `before-input-event`（在渲染进程处理之前触发）把物理按键通过 IPC `zp-key-event` 转发，preload 暴露 `zpDesktop.onKeyEvent()`，渲染端优先使用这份事件。
+- **输入法问题**：微软拼音等 CJK 输入法组合输入时，渲染进程只能收到 `keyCode 229` / `key: "Process"`，页面监听拿不到真实按键。`Windows/electron_main.js` 用 `before-input-event`（在渲染进程处理之前触发）把物理按键通过 IPC `zp-key-event` 转发，preload 暴露 `zpDesktop.onKeyEvent()`，渲染端优先使用这份事件。
 - **去重**：同一次物理按键可能同时到达 DOM 与主进程两条链路；按 `token + 修饰键` 生成签名，150ms 内相同签名只执行一次（`repeat` 事件直接忽略）。
 - **规范化**：`e.code`（`KeyA` / `Digit1` / `Equal` / `Minus` / `Slash` / `Escape` / `F1`）优先，`e.key` 兜底，统一成小写字母、数字与符号 token，规避大小写与键盘布局差异。
 - **作用域保护**：`INPUT` / `TEXTAREA` / `SELECT` / `contentEditable` 内不触发单键；有 `.ui-backdrop__visible` 模态时屏蔽单键；`Ctrl/Cmd/Alt` 组合除明确列出的以外一律放行给系统（`Ctrl+C`、`Alt+Tab` 等）。
@@ -165,7 +181,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.11 启动流程容错与画布自适应
 
-`src/index.browser.js` 的 `start()` 从"顺序 await、任何一步失败就白屏"改为分步隔离：
+`Windows/src/index.browser.js` 的 `start()` 从"顺序 await、任何一步失败就白屏"改为分步隔离：
 
 - 先创建 `ChromeZeppPlayer` 并立刻设置画布尺寸，再执行后续异步步骤。
 - 每一步单独 `try/catch`：视图模式、拖拽、设置加载、React UI、项目列表（8s 超时）、工具栏、控制台、资源管理器。
@@ -177,7 +193,7 @@ git diff upstream/master -- <某个文件>
 
 ## 1.12 Electron 主进程与打包
 
-- **`electron_main.js`（新增，+956）**
+- **`Windows/electron_main.js`（新增，+956）**
   - 本地 HTTP 服务监听 `0.0.0.0`（同 Wi-Fi 的手机可直接打开响应式界面），端口被占用时 `EADDRINUSE` 自动尝试下一个。
   - 窗口 1180×820、`autoHideMenuBar`、自定义图标、`backgroundThrottling:false`（窗口被遮挡时录制不冻结）。
   - `contextIsolation:true` + `nodeIntegration:false` + preload 桥。
@@ -187,8 +203,8 @@ git diff upstream/master -- <某个文件>
   - `/projects` 前缀剥离后做路径穿越校验。
   - `/api/server_info` 枚举局域网地址。
   - `before-input-event` 转发按键（见 1.10）。
-- **`preload.js`（新增，+23）**：`contextBridge` 暴露 `zpDesktop.isDesktop`、`getPathForFile`（`webUtils`）、`onKeyEvent`。
-- **`package.json`（+43/−3）**：版本 1.7.2 → 1.8.14，`main` 指向 `electron_main.js`；新增 `dist:x64` / `dist:ia32` / `dist` 脚本与 electron-builder 配置（NSIS、可选安装目录、桌面与开始菜单快捷方式、`assets/icon.ico`）；新增 `electron`、`electron-builder` 依赖。
+- **`Windows/preload.js`（新增，+23）**：`contextBridge` 暴露 `zpDesktop.isDesktop`、`getPathForFile`（`webUtils`）、`onKeyEvent`。
+- **`Windows/package.json`（+43/−3）**：版本 1.7.2 → 1.8.14，`main` 指向 `Windows/electron_main.js`；新增 `dist:x64` / `dist:ia32` / `dist` 脚本与 electron-builder 配置（NSIS、可选安装目录、桌面与开始菜单快捷方式、`Windows/assets/icon.ico`）；新增 `electron`、`electron-builder` 依赖。
 - **接口清单**（桌面与安卓一致）：`/api/list_projects`、`/api/import_project`、`/api/import_zip_upload`、`/api/import_path`、`/api/delete_project`、`/api/export_project`、`/api/download_project`、`/api/open_projects`、`/api/choose_projects_dir`、`/api/set_projects_dir`、`/api/folder_chooser`、`/api/save_preview`、`/api/save_text`、`/api/change_count`、`/api/watch`、`/api/server_info`。
 
 ---
@@ -221,7 +237,7 @@ git diff upstream/master -- <某个文件>
 
 - **面板下拉** `#zp_split_panels`：控制台 / 控件修改 / 资源管理器 / 代码修改四项，默认只显示当前面板图标；右下角有小三角提示，避免看起来和普通图标一样。
 - **文件下拉** `#zp_split_files`：导入项目 / 导出项目 / 项目文件夹。
-- **交互实现**（`src/index.browser.js`）：`zpSplitToggle` / `zpSplitPanel` / `zpSplitCode` / `zpSplitFile`；菜单用视口坐标定位（`getBoundingClientRect` + 边界夹取），因此不会被顶栏横向滚动容器裁切；`pointerdown` 点外部关闭、侧栏滚动关闭、窗口 `resize` 关闭、同一时间只开一个。
+- **交互实现**（`Windows/src/index.browser.js`）：`zpSplitToggle` / `zpSplitPanel` / `zpSplitCode` / `zpSplitFile`；菜单用视口坐标定位（`getBoundingClientRect` + 边界夹取），因此不会被顶栏横向滚动容器裁切；`pointerdown` 点外部关闭、侧栏滚动关闭、窗口 `resize` 关闭、同一时间只开一个。
 - **滚动拆分**：`#toolbar_top` 改为 `overflow:hidden`，新增 `#toolbar_top > .tools` 作为独立横向滚动容器，项目/设备选择固定不动。
 - 两个下拉在设备选择器右侧剩余空间内用 `margin:auto` 居中，空间不足时自动收缩为 0，首个按钮不会被裁掉。
 
@@ -251,7 +267,7 @@ git diff upstream/master -- <某个文件>
 
 # 三、模拟器内核
 
-- **app-side（伴随端）运行时**（新增 `src/zepp_player/appside/`，+419）
+- **app-side（伴随端）运行时**（新增 `Windows/src/zepp_player/appside/`，+419）
   - `AppSideManager`：随项目加载 `app-side.js`，维护 `appId`、会话、持久化存储与设备侧接收者集合；用进程内 `VirtualLink` 取代真实蓝牙端点 `0x00a0`。
   - `AppSideRuntime`：独立沙箱注入 `console`、`setTimeout`、`settings` 等，`onConsole` 转发到主控制台。
   - `ZBuffer`：Node `Buffer` 常用方法的兼容实现（`from` / `alloc` / `readUInt*` / `writeUInt*` / `toString` 等）。
@@ -270,7 +286,7 @@ git diff upstream/master -- <某个文件>
 
 # 四、多语言
 
-- 新增 `src/zepp_player/i18n.js`（+415）：内置中文/英文词典共 322 条词条，默认中文（`detectDefault()`），`localStorage.zp_lang` 持久化。
+- 新增 `Windows/src/zepp_player/i18n.js`（+415）：内置中文/英文词典共 322 条词条，默认中文（`detectDefault()`），`localStorage.zp_lang` 持久化。
 - `I18n.apply(root)` 扫描 `data-i18n` / `data-i18n-title` 替换文本与 `title`；`I18n.t(key, fallback)` 供 JS/TSX 使用。
 - 覆盖范围：顶栏与侧栏提示、面板名、文件操作、项目选择器、控制台工具栏、资源管理器、设置面板、命令面板、概览页、代码面板、快捷键面板、对话框、轻提示、启动提示。
 - 颜色设置项（`CssColorOptions.tsx`）从硬编码英文改为词条键。
@@ -291,7 +307,7 @@ git diff upstream/master -- <某个文件>
 
 ---
 
-# 六、安卓 App（新增 `ZeppPlayerAndroid/`）
+# 六、安卓 App（新增 `Android/`）
 
 不依赖 Gradle，`build.ps1` 直接调 aapt2 / javac / d8 / zipalign / apksigner 打包，产物 `release/ZeppPlayer-<版本号>.apk`，当前版本 **1.10.22**。
 
@@ -310,9 +326,9 @@ git diff upstream/master -- <某个文件>
 # 七、其他
 
 - `.gitignore`（+11）：排除 `/release`、安卓 `build`/`assets`/`release`/`keystore`、`*.apk`、`*.keystore`。
-- `projects/demo/`：补充 `preview_mi_band7.png` 预览图与 `__wt2.txt` 测试文件。
-- `package-lock.json`（+5543/−124）：锁定新增依赖。
-- 样式主体集中在 `app/index.css`（+1056/−251）与 `app/index.html`（+126/−43）。
+- `Windows/projects/demo/`：补充 `preview_mi_band7.png` 预览图与 `__wt2.txt` 测试文件。
+- `Windows/package-lock.json`（+5543/−124）：锁定新增依赖。
+- 样式主体集中在 `Windows/app/index.css`（+1056/−251）与 `Windows/app/index.html`（+126/−43）。
 
 ---
 
@@ -320,74 +336,74 @@ git diff upstream/master -- <某个文件>
 
 | 文件 | 增/删 | 说明 |
 | --- | --- | --- |
-| `app/index.html` | +126 / −43 | 顶栏新增导入/打开/导出/快捷键按钮；两个手机下拉；录屏/截图分组；侧栏设置入口；代码面板容器；面板移出 `.bigscreen`；`data-i18n` 属性；拖拽遮罩 |
-| `app/index.css` | +1056 / −251 | 桌面四栏布局；代码面板；控制台工具栏；拖拽遮罩；手机竖屏/横屏网格；顶栏下拉；侧栏 12 键校准与分区；录屏弹层；代码面板全屏与抽屉 |
-| `app/recording_frame.png` | 新增 | 录像手表外框（330×948，开孔 207×526） |
-| `app/render_fail.png` | 删除 | 旧渲染失败占位图，已无引用 |
-| `src/index.browser.js` | +487 / −27 | 画布自适应；手机下拉交互；导入/导出环境分流；拖拽导入；导入后自动选中；启动分步容错与告警上报 |
-| `src/ui_next/panel_code/PanelCode.tsx` | +285 | 代码面板：文件树、编辑、保存重载、跟随页面、控制台跳转 |
-| `src/ui_next/panel_code/PanelCode.css` | +176 | 代码面板基础样式（头部、文件树、编辑器、状态行）；手机全屏样式在 `app/index.css` |
-| `src/ui_next/shortcuts/ShortcutsPane.tsx` | +81 | 快捷键面板 |
-| `src/ui_next/shortcuts/ShortcutsPane.css` | +55 | 快捷键面板样式 |
-| `src/ui_next/RootComponent.tsx` | +24 / −3 | 面板独立渲染容错；挂载代码面板；新增快捷键面板 |
-| `src/ui_next/CommandPicker.tsx` | +7 / −3 | i18n；新增 Shortcuts 命令 |
-| `src/ui_next/ServerDirectoryPicker.tsx` | +10 / −1 | 目录切换失败提示 |
-| `src/ui_next/overview/OverviewCard.tsx` | +39 / −14 | 预览图强制刷新、播放器复用与释放、机型兜底、重建加锁 |
-| `src/ui_next/overview/OverviewRoot.tsx` | +3 / −2 | i18n |
-| `src/ui_next/palette/CommandPalette.tsx` | +2 / −1 | 过滤框占位文案 i18n |
-| `src/ui_next/command_palette/getChangeProfileCommands.tsx` | +2 / −1 | i18n |
-| `src/ui_next/command_palette/getChangeProjectCommands.tsx` | +2 / −1 | i18n |
-| `src/ui_next/panels/prop_editor/PropEditorEntry.tsx` | +1 / −1 | 旧 WebView 兼容（`replaceAll` → `split/join`） |
-| `src/ui_next/settings_pane/PlayerSettingsPane.tsx` | +98 / −15 | 语言切换、局域网地址复制、恢复默认时保留关键设置 |
-| `src/ui_next/settings_pane/CssColorOptions.tsx` | +11 / −10 | 颜色项 i18n |
-| `src/ui_managment/ToolbarManager.js` | +326 / −77 | 面板互斥切换、代码面板开关、视频/截图、键盘桥与去重、快捷键作用域、空状态保护、循环切换项目 |
-| `src/ui_managment/ConsoleManager.js` | +160 / −23 | 控制台工具栏、3000 条上限、复制/导出、点击跳转代码 |
-| `src/ui_managment/ProjectPicker.ts` | +168 / −40 | 删除项目、导入后自动选中、可重复刷新、错误提示 |
-| `src/ui_managment/VideoRecorder.js` | +340 | 视频录制（MP4 优先、WebM 回退、外框合成） |
-| `src/ui_managment/ScreenshotManager.js` | +134 | 截图（剪贴板 + 落盘 + 提示） |
-| `src/ui_managment/GifRecorder.js` | −90 | 由 VideoRecorder 取代 |
-| `src/ui_managment/ViewMode.js` | +101 | 响应式视图判定、CSS 变量、环境探测、下载助手 |
-| `src/ui_managment/ChangesWatcher.js` | +37 / −14 | `hold()` 抑制、空项目保护、异常兜底 |
-| `src/ui_managment/AppSettingsManager.js` | +29 / −7 | localStorage 不可用时回退内存 |
-| `src/ui_managment/ExplorerManager.js` | +21 / −8 | 运行时保护、i18n、自绘 prompt |
-| `src/zepp_player/i18n.js` | +415 | 中英词典（322 条）与切换 |
-| `src/zepp_player/zpDialogs.js` | +171 | alert / confirm / prompt 替代实现 |
-| `src/zepp_player/zpToast.js` | +49 | 非阻塞轻提示 |
-| `src/zepp_player/ZeppPlayer.ts` | +45 / −4 | `dispose()`、重启去重与恢复、`onRuntimeChanged`、加载 app-side |
-| `src/zepp_player/ChromeZeppPlayer.ts` | +58 / −37 | Pointer Events、坐标缩放与裁剪、静默探测、空运行时保护 |
-| `src/zepp_player/SyystemEnvironment.ts` | +9 / −1 | 注入 messaging 并在销毁时释放 |
-| `src/zepp_player/ZeppRuntime.js` | +2 / −1 | 日志附带 `scriptPath` |
-| `src/zepp_player/appside/AppSideManager.js` | +148 | 伴随端运行时管理与虚拟链路 |
-| `src/zepp_player/appside/AppSideRuntime.js` | +151 | app-side 沙箱执行环境 |
-| `src/zepp_player/appside/ZBuffer.js` | +120 | Buffer 兼容实现 |
-| `src/zepp_player/zepp_env/MessagingMock.js` | +69 | messaging / hmBle 模拟 |
-| `electron_main.js` | +956 | Electron 主进程、全部后端接口、按键转发、局域网地址、示例播种 |
-| `preload.js` | +23 | `zpDesktop` 桥（拖拽路径、按键事件） |
-| `package.json` | +43 / −3 | 版本 1.8.14、`main`、打包脚本、electron-builder 配置 |
-| `package-lock.json` | +5543 / −124 | 依赖锁定 |
-| `assets/icon.ico` | 新增 | Electron 应用图标 |
-| `ZeppPlayerAndroid/AndroidManifest.xml` | +34 | 权限、Activity、版本号 |
-| `ZeppPlayerAndroid/build.ps1` | +233 | 无 Gradle 打包脚本 |
-| `ZeppPlayerAndroid/java/.../MainActivity.java` | +475 | WebView 外壳与原生交互 |
-| `ZeppPlayerAndroid/java/.../LocalServer.java` | +946 | 本地 HTTP 服务 |
-| `ZeppPlayerAndroid/java/.../VideoTranscoder.java` | +181 | WebM → MP4 |
-| `ZeppPlayerAndroid/java/.../AndroidSaver.java` | +293 | MediaStore 保存 |
-| `ZeppPlayerAndroid/java/.../Json.java` | +116 | JSON 解析/生成 |
-| `ZeppPlayerAndroid/java/.../FileStorage.java` | +16 | 文件存储 |
-| `ZeppPlayerAndroid/java/.../Saver.java` | +28 | 保存接口 |
-| `ZeppPlayerAndroid/java/.../Storage.java` | +8 | 存储抽象 |
-| `ZeppPlayerAndroid/res/**` | 新增 | 图标、应用名、主题 |
-| `ZeppPlayerAndroid/test/**` | +399 | 调试服务与接口自测 |
+| `Windows/app/index.html` | +126 / −43 | 顶栏新增导入/打开/导出/快捷键按钮；两个手机下拉；录屏/截图分组；侧栏设置入口；代码面板容器；面板移出 `.bigscreen`；`data-i18n` 属性；拖拽遮罩 |
+| `Windows/app/index.css` | +1056 / −251 | 桌面四栏布局；代码面板；控制台工具栏；拖拽遮罩；手机竖屏/横屏网格；顶栏下拉；侧栏 12 键校准与分区；录屏弹层；代码面板全屏与抽屉 |
+| `Windows/app/recording_frame.png` | 新增 | 录像手表外框（330×948，开孔 207×526） |
+| `Windows/app/render_fail.png` | 删除 | 旧渲染失败占位图，已无引用 |
+| `Windows/src/index.browser.js` | +487 / −27 | 画布自适应；手机下拉交互；导入/导出环境分流；拖拽导入；导入后自动选中；启动分步容错与告警上报 |
+| `Windows/src/ui_next/panel_code/PanelCode.tsx` | +285 | 代码面板：文件树、编辑、保存重载、跟随页面、控制台跳转 |
+| `Windows/src/ui_next/panel_code/PanelCode.css` | +176 | 代码面板基础样式（头部、文件树、编辑器、状态行）；手机全屏样式在 `Windows/app/index.css` |
+| `Windows/src/ui_next/shortcuts/ShortcutsPane.tsx` | +81 | 快捷键面板 |
+| `Windows/src/ui_next/shortcuts/ShortcutsPane.css` | +55 | 快捷键面板样式 |
+| `Windows/src/ui_next/RootComponent.tsx` | +24 / −3 | 面板独立渲染容错；挂载代码面板；新增快捷键面板 |
+| `Windows/src/ui_next/CommandPicker.tsx` | +7 / −3 | i18n；新增 Shortcuts 命令 |
+| `Windows/src/ui_next/ServerDirectoryPicker.tsx` | +10 / −1 | 目录切换失败提示 |
+| `Windows/src/ui_next/overview/OverviewCard.tsx` | +39 / −14 | 预览图强制刷新、播放器复用与释放、机型兜底、重建加锁 |
+| `Windows/src/ui_next/overview/OverviewRoot.tsx` | +3 / −2 | i18n |
+| `Windows/src/ui_next/palette/CommandPalette.tsx` | +2 / −1 | 过滤框占位文案 i18n |
+| `Windows/src/ui_next/command_palette/getChangeProfileCommands.tsx` | +2 / −1 | i18n |
+| `Windows/src/ui_next/command_palette/getChangeProjectCommands.tsx` | +2 / −1 | i18n |
+| `Windows/src/ui_next/panels/prop_editor/PropEditorEntry.tsx` | +1 / −1 | 旧 WebView 兼容（`replaceAll` → `split/join`） |
+| `Windows/src/ui_next/settings_pane/PlayerSettingsPane.tsx` | +98 / −15 | 语言切换、局域网地址复制、恢复默认时保留关键设置 |
+| `Windows/src/ui_next/settings_pane/CssColorOptions.tsx` | +11 / −10 | 颜色项 i18n |
+| `Windows/src/ui_managment/ToolbarManager.js` | +326 / −77 | 面板互斥切换、代码面板开关、视频/截图、键盘桥与去重、快捷键作用域、空状态保护、循环切换项目 |
+| `Windows/src/ui_managment/ConsoleManager.js` | +160 / −23 | 控制台工具栏、3000 条上限、复制/导出、点击跳转代码 |
+| `Windows/src/ui_managment/ProjectPicker.ts` | +168 / −40 | 删除项目、导入后自动选中、可重复刷新、错误提示 |
+| `Windows/src/ui_managment/VideoRecorder.js` | +340 | 视频录制（MP4 优先、WebM 回退、外框合成） |
+| `Windows/src/ui_managment/ScreenshotManager.js` | +134 | 截图（剪贴板 + 落盘 + 提示） |
+| `Windows/src/ui_managment/GifRecorder.js` | −90 | 由 VideoRecorder 取代 |
+| `Windows/src/ui_managment/ViewMode.js` | +101 | 响应式视图判定、CSS 变量、环境探测、下载助手 |
+| `Windows/src/ui_managment/ChangesWatcher.js` | +37 / −14 | `hold()` 抑制、空项目保护、异常兜底 |
+| `Windows/src/ui_managment/AppSettingsManager.js` | +29 / −7 | localStorage 不可用时回退内存 |
+| `Windows/src/ui_managment/ExplorerManager.js` | +21 / −8 | 运行时保护、i18n、自绘 prompt |
+| `Windows/src/zepp_player/i18n.js` | +415 | 中英词典（322 条）与切换 |
+| `Windows/src/zepp_player/zpDialogs.js` | +171 | alert / confirm / prompt 替代实现 |
+| `Windows/src/zepp_player/zpToast.js` | +49 | 非阻塞轻提示 |
+| `Windows/src/zepp_player/ZeppPlayer.ts` | +45 / −4 | `dispose()`、重启去重与恢复、`onRuntimeChanged`、加载 app-side |
+| `Windows/src/zepp_player/ChromeZeppPlayer.ts` | +58 / −37 | Pointer Events、坐标缩放与裁剪、静默探测、空运行时保护 |
+| `Windows/src/zepp_player/SyystemEnvironment.ts` | +9 / −1 | 注入 messaging 并在销毁时释放 |
+| `Windows/src/zepp_player/ZeppRuntime.js` | +2 / −1 | 日志附带 `scriptPath` |
+| `Windows/src/zepp_player/appside/AppSideManager.js` | +148 | 伴随端运行时管理与虚拟链路 |
+| `Windows/src/zepp_player/appside/AppSideRuntime.js` | +151 | app-side 沙箱执行环境 |
+| `Windows/src/zepp_player/appside/ZBuffer.js` | +120 | Buffer 兼容实现 |
+| `Windows/src/zepp_player/zepp_env/MessagingMock.js` | +69 | messaging / hmBle 模拟 |
+| `Windows/electron_main.js` | +956 | Electron 主进程、全部后端接口、按键转发、局域网地址、示例播种 |
+| `Windows/preload.js` | +23 | `zpDesktop` 桥（拖拽路径、按键事件） |
+| `Windows/package.json` | +43 / −3 | 版本 1.8.14、`main`、打包脚本、electron-builder 配置 |
+| `Windows/package-lock.json` | +5543 / −124 | 依赖锁定 |
+| `Windows/assets/icon.ico` | 新增 | Electron 应用图标 |
+| `Android/AndroidManifest.xml` | +34 | 权限、Activity、版本号 |
+| `Android/build.ps1` | +233 | 无 Gradle 打包脚本 |
+| `Android/java/.../MainActivity.java` | +475 | WebView 外壳与原生交互 |
+| `Android/java/.../LocalServer.java` | +946 | 本地 HTTP 服务 |
+| `Android/java/.../VideoTranscoder.java` | +181 | WebM → MP4 |
+| `Android/java/.../AndroidSaver.java` | +293 | MediaStore 保存 |
+| `Android/java/.../Json.java` | +116 | JSON 解析/生成 |
+| `Android/java/.../FileStorage.java` | +16 | 文件存储 |
+| `Android/java/.../Saver.java` | +28 | 保存接口 |
+| `Android/java/.../Storage.java` | +8 | 存储抽象 |
+| `Android/res/**` | 新增 | 图标、应用名、主题 |
+| `Android/test/**` | +399 | 调试服务与接口自测 |
 | `.gitignore` | +11 | 构建产物与签名文件排除 |
-| `README-Complete.md` | 新增 | 本文件 |
-| `projects/demo/preview_mi_band7.png` | 新增 | 示例项目预览图 |
-| `projects/demo/__wt2.txt` | +1 | 示例项目测试文件 |
+| `README.md` | 改写 | 本文件（正文 + 上游原文附录） |
+| `Windows/projects/demo/preview_mi_band7.png` | 新增 | 示例项目预览图 |
+| `Windows/projects/demo/__wt2.txt` | +1 | 示例项目测试文件 |
 
 ---
 
 ## 下载与安装
 
-- 安卓：安装 `ZeppPlayerAndroid/release/ZeppPlayer-<版本号>.apk`（minSdk 24，targetSdk 34）。
+- 安卓：安装 `Android/release/ZeppPlayer-<版本号>.apk`（minSdk 24，targetSdk 34）。
 - 桌面：使用 electron-builder 生成的安装包，或按下方步骤自行打包。
 
 ## 从源码构建
@@ -395,20 +411,21 @@ git diff upstream/master -- <某个文件>
 ### 桌面端
 
 ```bash
+cd Windows
 npm install
-npm run browser:build     # 打包前端到 app/
-npm run dist:x64          # 生成 Windows 安装包到 release/
+npm run browser:build     # 打包前端到 Windows/app/
+npm run dist:x64          # 生成 Windows 安装包到 Windows/release/
 ```
 
 ### 安卓端
 
-需要 JDK 17、Android SDK（platform 35、build-tools 35.0.0）：
+需要 JDK 17、Android SDK（platform 35、build-tools 35.0.0），并且**先在 `Windows/` 里执行过 `npm run browser:build`**（`build.ps1` 会从 `..\Windows\app` 复制前端资源）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ZeppPlayerAndroid\build.ps1
+powershell -ExecutionPolicy Bypass -File Android\build.ps1
 ```
 
-产物为 `ZeppPlayerAndroid/release/ZeppPlayer-<版本号>.apk`，已用本地 keystore 签名。`versionCode = major*10000 + minor*100 + patch`，升级时必须递增，否则 Android 会拒绝覆盖安装。
+产物为 `Android/release/ZeppPlayer-<版本号>.apk`，已用本地 keystore 签名。`versionCode = major*10000 + minor*100 + patch`，升级时必须递增，否则 Android 会拒绝覆盖安装。
 
 ## 与上游同步
 
@@ -418,7 +435,7 @@ git fetch upstream
 git merge upstream/master
 ```
 
-改动集中在 `app/`、`src/ui_managment/`、`src/ui_next/`、`src/zepp_player/`、`src/index.browser.js`、`electron_main.js`、`preload.js`、`package.json` 与 `ZeppPlayerAndroid/`，合并冲突一般只出现在这些文件。
+改动集中在 `Windows/app/`、`Windows/src/ui_managment/`、`Windows/src/ui_next/`、`Windows/src/zepp_player/`、`Windows/src/index.browser.js`、`Windows/electron_main.js`、`Windows/preload.js`、`Windows/package.json` 与 `Android/`，合并冲突一般只出现在这些文件。
 
 ## 已知限制
 
@@ -440,12 +457,13 @@ git merge upstream/master
 
 - 原项目：https://github.com/MelianMiko/ZeppPlayer
 - 原作者主页：https://melianmiko.ru
+
 ---
 
-# 附录：原版 README（上游原文，未作任何修改）
+# 附录：原版 README（上游原文，仅徽标路径随目录调整）
 
 <div align="center">
-<img src="docs/logo256.png" alt="" />
+<img src="Windows/assets/logo256.png" alt="" />
 <h1>ZeppPlayer</h1>
 <p>Unofficial ZeppOS emulator.</p>
 </div>
