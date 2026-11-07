@@ -326,7 +326,7 @@ git diff upstream/master -- <某个文件>
 | `app/render_fail.png` | 删除 | 旧渲染失败占位图，已无引用 |
 | `src/index.browser.js` | +487 / −27 | 画布自适应；手机下拉交互；导入/导出环境分流；拖拽导入；导入后自动选中；启动分步容错与告警上报 |
 | `src/ui_next/panel_code/PanelCode.tsx` | +285 | 代码面板：文件树、编辑、保存重载、跟随页面、控制台跳转 |
-| `src/ui_next/panel_code/PanelCode.css` | +176 | 代码面板样式（含手机全屏与抽屉） |
+| `src/ui_next/panel_code/PanelCode.css` | +176 | 代码面板基础样式（头部、文件树、编辑器、状态行）；手机全屏样式在 `app/index.css` |
 | `src/ui_next/shortcuts/ShortcutsPane.tsx` | +81 | 快捷键面板 |
 | `src/ui_next/shortcuts/ShortcutsPane.css` | +55 | 快捷键面板样式 |
 | `src/ui_next/RootComponent.tsx` | +24 / −3 | 面板独立渲染容错；挂载代码面板；新增快捷键面板 |
