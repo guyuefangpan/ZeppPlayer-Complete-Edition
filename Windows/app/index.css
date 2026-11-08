@@ -132,6 +132,16 @@ aside.caption {
     display: none;
 }
 
+/* Shown only when a desktop window is narrow enough for the code preview to
+ * become a modal (see ViewMode.js); it is the entry point for that modal. */
+.zp-narrow-only {
+    display: none;
+}
+
+body.zp-narrow-code:not(.zp-mobile) .zp-narrow-only {
+    display: inline-flex;
+}
+
 #toolbar_side.watchface > .btn_wf,
 #toolbar_side.app > .btn_app{
     display: block;
@@ -1028,39 +1038,71 @@ body.zp-mobile .display_base canvas {
     max-height: 100%;
 }
 
-/* Code preview: a full-screen modal on phones, opened from the panels
- * dropdown. The panel stays mounted while hidden so edits are kept when it is
- * reopened. */
+/* Dims the page behind the code modal (phones and narrow desktop windows). */
+.zp-code-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 69;
+    background: rgba(24, 24, 24, .55);
+}
+
+body.zp-code-open .zp-code-backdrop {
+    display: block;
+}
+
+/* Code preview: a centred modal on phones and in narrow desktop windows,
+ * opened from the panels dropdown (phones) or the code icon (desktop). It
+ * stays mounted while hidden so edits are kept when it is reopened. */
 body.zp-mobile #code_panel {
     display: none;
 }
 
 body.zp-mobile.zp-code-open #code_panel {
-    display: block;
+    display: flex;
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     z-index: 70;
-    width: auto;
+    width: min(94vw, 720px);
+    height: min(84vh, 880px);
+    height: min(84dvh, 880px);
     min-width: 0;
     max-width: none;
-    height: auto;
     min-height: 0;
+    max-height: none;
     margin: 0;
-    border-radius: 0;
-    box-shadow: none;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
     background: var(--editor);
     overflow: hidden;
 }
 
-body.zp-mobile.zp-code-open #code_panel .zpc__head {
-    padding-top: calc(6px + env(safe-area-inset-top));
+/* Narrow desktop windows: the three-column layout would squeeze the editor
+ * below a usable width, so the code preview becomes the same modal. */
+body.zp-narrow-code:not(.zp-mobile) #code_panel {
+    display: none;
 }
 
-body.zp-mobile.zp-code-open #code_panel .zpc__status {
-    padding-bottom: calc(2px + env(safe-area-inset-bottom));
+body.zp-narrow-code:not(.zp-mobile).zp-code-open #code_panel {
+    display: flex;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 70;
+    width: min(92vw, 1080px);
+    height: min(88vh, 900px);
+    min-width: 0;
+    max-width: none;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    background: var(--editor);
+    overflow: hidden;
 }
 
 body.zp-mobile.zp-code-open #code_panel .zpc__root {

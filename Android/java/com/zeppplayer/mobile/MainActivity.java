@@ -1,6 +1,8 @@
 package com.zeppplayer.mobile;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.net.Uri;
@@ -260,11 +262,40 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
+        if (webView == null) {
             super.onBackPressed();
+            return;
         }
+        /* Ask the page first: open menus, dialogs and the code editor close
+         * before the activity is allowed to exit, and the editor asks about
+         * unsaved changes on its own. */
+        webView.evaluateJavascript(
+                "(function(){try{return (window.zpHandleBack&&window.zpHandleBack())?'1':'0'}catch(e){return '0'}})()",
+                new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if (value != null && value.indexOf('1') >= 0) return;
+                        if (webView != null && webView.canGoBack()) {
+                            webView.goBack();
+                            return;
+                        }
+                        confirmExit();
+                    }
+                });
+    }
+
+    private void confirmExit() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.exit_title)
+                .setMessage(R.string.exit_message)
+                .setPositiveButton(R.string.exit_ok, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        finish();
+                    }
+                })
+                .setNegativeButton(R.string.exit_cancel, null)
+                .show();
     }
 
     @Override

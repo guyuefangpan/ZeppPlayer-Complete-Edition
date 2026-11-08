@@ -15,11 +15,11 @@ $BT = Join-Path $SDK "build-tools\35.0.0"
 $ANDROID_JAR = Join-Path $SDK "platforms\android-35\android.jar"
 
 $ROOT = $PSScriptRoot
-$MASTER = Join-Path $ROOT "..\Windows"
+$MASTER = Join-Path $ROOT "..\ZeppPlayer-master"
 $BUILD = Join-Path $ROOT "build"
 $ASSETS = Join-Path $ROOT "assets"
 $RELEASE = Join-Path $ROOT "release"
-$VERSION = "1.10.22"
+$VERSION = "1.10.24"
 $VER_PARTS = $VERSION.Split(".")
 $VER_CODE = [int]$VER_PARTS[0] * 10000 + [int]$VER_PARTS[1] * 100 + [int]$VER_PARTS[2]
 $OUT_APK = Join-Path $RELEASE "ZeppPlayer-$VERSION.apk"
@@ -153,10 +153,13 @@ if ($LASTEXITCODE -ne 0) { throw "aapt2 compile failed" }
 # stores their names with backslashes ("assets/web\index.html"), which the
 # Android AssetManager cannot resolve, so the WebView would open an empty page.
 Step "aapt2 link"
+# --java emits R.java, which the activity needs for its string resources.
+Remove-Item (Join-Path $BUILD "gen") -Recurse -Force -ErrorAction SilentlyContinue
 & (Join-Path $BT "aapt2.exe") link -o (Join-Path $BUILD "base.apk") `
     -I $ANDROID_JAR `
     --manifest (Join-Path $ROOT "AndroidManifest.xml") `
     -R (Join-Path $BUILD "res.zip") `
+    --java (Join-Path $BUILD "gen") `
     --min-sdk-version 24 `
     --target-sdk-version 34 `
     --auto-add-overlay
@@ -164,10 +167,11 @@ if ($LASTEXITCODE -ne 0) { throw "aapt2 link failed" }
 
 Step "Compiling Java"
 $sources = Get-ChildItem (Join-Path $ROOT "java") -Recurse -Filter *.java | ForEach-Object { $_.FullName }
+$genSources = Get-ChildItem (Join-Path $BUILD "gen") -Recurse -Filter *.java -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
 New-Item -ItemType Directory -Force -Path (Join-Path $BUILD "classes") | Out-Null
 & (Join-Path $JDK "bin\javac.exe") -encoding UTF-8 -source 8 -target 8 `
     -bootclasspath $ANDROID_JAR `
-    -d (Join-Path $BUILD "classes") $sources
+    -d (Join-Path $BUILD "classes") $sources $genSources
 if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 
 Step "Dexing"

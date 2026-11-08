@@ -115,6 +115,17 @@ window.zpSplitFile = (kind) => {
     else if (kind === "folder") window.zpOpenProjects();
 };
 
+/* Tapping the dimmed backdrop closes the code modal. The panel owns the
+ * unsaved-changes guard, so route through it when it is mounted. */
+const codeBackdrop = document.getElementById("zp_code_backdrop");
+if (codeBackdrop) {
+    codeBackdrop.addEventListener("click", () => {
+        const close = window.zpRequestCloseCode;
+        if (typeof close === "function") close();
+        else window.zpCloseCode();
+    });
+}
+
 /* ===== Phone sidebar dropdown =====
  * Record and screenshot share one icon in the 40px wide icon bar. The menu
  * unfolds to the right of the bar, positioned in viewport coordinates so the
@@ -169,6 +180,24 @@ window.addEventListener("resize", () => {
     closeToolbarSplits(null);
     closeSideSplits(null);
 });
+
+/* Android hardware back: dismiss whatever is open before letting the activity
+ * exit, so a stray back press never closes the app on top of a menu or an
+ * unsaved editor. Returns true when the press was consumed. */
+window.zpHandleBack = () => {
+    if (document.querySelector(".zp-split.open") || document.querySelector(".zp-side-split.open")) {
+        closeToolbarSplits(null);
+        closeSideSplits(null);
+        return true;
+    }
+    if (document.getElementById("zp-dialog-overlay")) return true;
+    if (document.body.classList.contains("zp-code-open")) {
+        const close = window.zpRequestCloseCode;
+        if (typeof close === "function") close();
+        return true;
+    }
+    return false;
+};
 
 /* After an import the new folder is selected right away instead of reloading
  * the whole page, so the imported project starts previewing immediately. */
@@ -383,7 +412,7 @@ const setupDropImport = () => {
 
         if (!droppedPath) {
             await zpAlert(I18n.t("dialog.importFailed", "Import failed")
-                + ": " + (I18n.locale === "zh" ? "无法读取拖入文件的路径" : "Cannot read the dropped path"));
+                + ": " + I18n.t("error.dropNoPath", "Cannot read the dropped file path"));
             return;
         }
 
@@ -486,7 +515,12 @@ const start = async () => {
     if (player) {
         try {
             await withTimeout(ProjectPicker.setup(player), 8000, "project list");
-        } catch (e) { bootWarn("project list", e); }
+        } catch (e) {
+            bootWarn("project list", e);
+            // Replace the empty picker with a retry entry instead of leaving
+            // the user with a silently empty list.
+            try { ProjectPicker.showRetry(); } catch (err) { console.warn(err); }
+        }
         try { ToolbarManager.initProfileSelect(player); } catch (e) { bootWarn("profile select", e); }
     }
 
@@ -514,7 +548,7 @@ const start = async () => {
             await player.init();
         } catch (e) {
             bootFail("Project load", e);
-            showToast("项目加载失败: " + (e && (e.message || e)), true, 8000);
+            showToast(I18n.t("error.projectLoad", "Failed to load the project: ") + (e && (e.message || e)), true, 8000);
         }
     } else {
         console.warn("No project found in the projects folder");
@@ -524,7 +558,7 @@ const start = async () => {
     // Surface non-fatal boot problems once, so a phone without DevTools can
     // still tell us which step degraded.
     if (bootIssues.length && window.__zpReport) {
-        window.__zpReport("启动告警（界面仍可用）:\n" + bootIssues.join("\n"));
+        window.__zpReport(I18n.t("error.bootIssues", "Startup warnings (the UI still works):") + "\n" + bootIssues.join("\n"));
     }
 
     // Render config

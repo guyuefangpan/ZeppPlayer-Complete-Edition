@@ -98,6 +98,12 @@ const en = {
     "code.files": "Loading files...",
     "code.fileList": "Files",
     "code.manualFollow": "manual, page follow paused",
+    "code.unsaved": "Unsaved changes",
+    "code.discardConfirm": "Discard unsaved changes in this file?",
+    "code.savedNoReload": "Saved",
+    "code.search": "Search in file",
+    "code.searchPrev": "Previous match",
+    "code.searchNext": "Next match",
 
     "cmd.changeDir": "Change projects directory",
     "cmd.openSettings": "Open player settings",
@@ -110,6 +116,11 @@ const en = {
     "picker.changeDir": "<change directory...>",
     "picker.deleteProject": "<delete project...>",
     "picker.useDir": "Use ",
+    "picker.retry": "<reload project list...>",
+
+    "error.projectLoad": "Failed to load the project: ",
+    "error.dropNoPath": "Cannot read the dropped file path",
+    "error.bootIssues": "Startup warnings (the UI still works):",
 
     "explorer.timerId": "Timer ID",
     "explorer.delay": "Delay",
@@ -280,6 +291,12 @@ const zh = {
     "code.files": "正在加载文件...",
     "code.fileList": "文件列表",
     "code.manualFollow": "手动选择，已暂停跟随页面",
+    "code.unsaved": "有未保存的修改",
+    "code.discardConfirm": "当前文件有未保存的修改，确定放弃吗？",
+    "code.savedNoReload": "已保存",
+    "code.search": "在文件中搜索",
+    "code.searchPrev": "上一个匹配",
+    "code.searchNext": "下一个匹配",
 
     "cmd.changeDir": "更改项目目录",
     "cmd.openSettings": "打开播放器设置",
@@ -292,6 +309,11 @@ const zh = {
     "picker.changeDir": "<更改目录...>",
     "picker.deleteProject": "<删除项目...>",
     "picker.useDir": "使用目录 ",
+    "picker.retry": "<重新加载项目列表...>",
+
+    "error.projectLoad": "项目加载失败：",
+    "error.dropNoPath": "无法读取拖入文件的路径",
+    "error.bootIssues": "启动告警（界面仍可用）：",
 
     "explorer.timerId": "定时器 ID",
     "explorer.delay": "延迟",

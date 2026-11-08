@@ -14,6 +14,21 @@ const fs = require("fs");
 const url = require("url");
 const { execFile } = require("child_process");
 
+/* A second instance would start another local server and a second window on
+ * the same project folder, so only one copy may run at a time. */
+let mainWindow = null;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on("second-instance", () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    });
+}
+
 const ROOT_DIR = __dirname;
 const APP_DIR = path.join(ROOT_DIR, "app");
 const BUNDLED_PROJECTS_DIR = path.join(ROOT_DIR, "projects");
@@ -895,6 +910,10 @@ function createWindow() {
     });
 
     win.loadURL(`http://127.0.0.1:${PORT}/`);
+    mainWindow = win;
+    win.on("closed", () => {
+        if (mainWindow === win) mainWindow = null;
+    });
 }
 
 /* URLs other devices on the same network can use to reach the app. */
@@ -935,6 +954,7 @@ function listenWithRetry() {
 }
 
 app.whenReady().then(async () => {
+    if (!hasSingleInstanceLock) return;
     getProjectsDir();
     try {
         await listenWithRetry();

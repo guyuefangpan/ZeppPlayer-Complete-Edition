@@ -53,6 +53,11 @@
             <span data-i18n-title="toolbar.explorer" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_explorer" onclick="zpPanelTab('view_explorer', this)">
                 account_tree
             </span>
+            <!-- Narrow desktop windows turn the code preview into a modal, so
+                 it needs an entry point that the phone dropdown cannot give. -->
+            <span data-i18n-title="toolbar.code" class="material-symbols-outlined bigscreen zp-desktop-only zp-narrow-only" id="toggle_code_modal" onclick="zpOpenCode()">
+                code
+            </span>
             <hr class="zp-desktop-only" />
             <span data-i18n-title="toolbar.overview" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('overview')">
                 apps
@@ -192,6 +197,8 @@
     </div>
     <div id="loading" style="display: none;"></div>
     <div id="ng-root"></div>
+    <!-- Dims the page behind the code modal on phones and narrow windows. -->
+    <div id="zp_code_backdrop" class="zp-code-backdrop"></div>
     <div id="zp_drop_overlay" class="zp-drop-overlay">
         <div class="zp-drop-overlay__box">
             <span class="material-symbols-outlined">upload_file</span>
