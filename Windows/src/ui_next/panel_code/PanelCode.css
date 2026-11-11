@@ -137,40 +137,180 @@
 }
 
 .zpc__path {
-    padding: 3px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px 3px 10px;
+    min-height: 28px;
+    box-sizing: border-box;
     font-size: 12px;
-    opacity: .55;
     border-bottom: 1px solid rgba(255, 255, 255, .12);
+    user-select: text;
+    flex-shrink: 0;
+}
+
+.zpc__path-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    opacity: .55;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    user-select: text;
+}
+
+/* Search / prev / next live in the empty right side of the path row. */
+.zpc__search {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.zpc__search-input {
+    width: 150px;
+    height: 22px;
+    margin: 0;
+    padding: 2px 7px;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .2);
+    border-radius: 6px;
+    color: var(--editor-text, #fff);
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+}
+
+.zpc__search-input:focus {
+    border-color: var(--accent);
+}
+
+.zpc__search-input::placeholder {
+    color: rgba(255, 255, 255, .35);
+}
+
+.zpc__search-count {
+    min-width: 32px;
+    font-size: 11px;
+    opacity: .6;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.zpc__navbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 20px;
+    opacity: .6;
     flex-shrink: 0;
+    user-select: none;
+}
+
+.zpc__navbtn:hover {
+    background: rgba(255, 255, 255, .1);
+    opacity: .95;
+}
+
+.zpc__navbtn:active {
+    background: rgba(255, 255, 255, .18);
 }
 
 .zpc__manual {
     color: var(--accent);
     opacity: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.zpc__editor {
+/* The follow hint would eat the space the search controls need. */
+body.zp-mobile .zpc__manual {
+    display: none;
+}
+
+.zpc__dirty {
+    color: #ffb74d;
+    margin-left: 6px;
+}
+
+/* CodeMirror host: the editor itself must fill the remaining height. */
+.zpc__cm {
     flex: 1;
-    width: 100%;
-    box-sizing: border-box;
-    resize: none;
-    border: none;
-    outline: none;
-    background: transparent;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.zpc__cm .cm-editor {
+    height: 100%;
+}
+
+.zpc__cm .cm-scroller {
+    overflow: auto;
+}
+
+/* Search panel (Ctrl+F) and its matches, kept readable on the dark editor. */
+.zpc__cm .cm-panels {
+    background: #262626;
     color: var(--editor-text, #fff);
-    font-family: Consolas, Menlo, "Courier New", monospace;
-    font-size: 12.5px;
-    line-height: 1.45;
-    padding: 8px 10px;
-    tab-size: 2;
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+
+.zpc__cm .cm-panels input,
+.zpc__cm .cm-panels button {
+    background: #333;
+    color: var(--editor-text, #fff);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
+/* Yellow hits for the compact search row (see searchHighlighter). */
+.zpc__cm .zpc-hit {
+    background: rgba(255, 214, 64, .45);
+    border-radius: 2px;
+}
+
+.zpc__cm .zpc-hit--current {
+    background: rgba(255, 193, 7, .85);
+    box-shadow: 0 0 0 1px rgba(255, 235, 130, .8);
+}
+
+/* The built-in Ctrl+F panel paints the same way. */
+.zpc__cm .cm-searchMatch {
+    background: rgba(255, 214, 64, .45);
+    outline: 1px solid rgba(255, 214, 64, .6);
+}
+
+.zpc__cm .cm-searchMatch-selected {
+    background: rgba(255, 193, 7, .85);
+}
+
+.zpc__cm .cm-tooltip {
+    background: #2b2b2b;
+    border: 1px solid rgba(255, 255, 255, .16);
+    color: var(--editor-text, #fff);
 }
 
 .zpc__empty {
     padding: 16px;
     opacity: .5;
     font-size: 13px;
+}
+
+/* Touch-sized search controls on phones. */
+body.zp-mobile .zpc__navbtn {
+    width: 30px;
+    height: 30px;
+    font-size: 22px;
+}
+
+body.zp-mobile .zpc__search-input {
+    width: 104px;
+    height: 26px;
 }

@@ -50,8 +50,7 @@ export default class ZeppRuntime {
             this.scriptPath.split("/").pop() + ":" + this.scriptPath);
 
         const extra = this.player.getEvalAdditionalData(this.scriptPath);
-        const scriptFile = await this.player.loadFile(this.scriptPath);
-        const text = new TextDecoder().decode(scriptFile);
+        const text = await this.player.buildScriptBody(this.scriptPath);
 
         this.appGestureHandler = () => false;
         this.rootEventHandler = new ScreenRootEventHandler(this);
@@ -69,7 +68,9 @@ export default class ZeppRuntime {
         const script = `${extra}\n(${Object.keys(env).toString() }) => {${text}}`;
 
         try {
-            const fnc = eval(script)
+            /* Indirect eval keeps the script in sloppy mode: official samples
+             * assign globals without declaring them, as on a real device. */
+            const fnc = (0, eval)(script)
             fnc(...Object.values(env));
         } catch(e) {
             this.onConsole("error", ["Script load failed", e]);

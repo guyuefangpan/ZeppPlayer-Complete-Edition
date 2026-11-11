@@ -121,10 +121,28 @@ export class ProjectPicker {
         return selected;
     }
 
+    /* Used when the project list could not be loaded at all (timeout, dead
+     * server): leave one actionable entry instead of an empty dropdown. */
+    static showRetry() {
+        const view = ProjectPicker.view;
+        if(!view) return;
+        while(view.options.length > 0) view.remove(0);
+        const opt = document.createElement("option");
+        opt.value = "<retry>";
+        opt.innerText = I18n.t("picker.retry");
+        view.appendChild(opt);
+        view.value = "<retry>";
+    }
+
     private static async handleChange() {
         const view = ProjectPicker.view;
         const value = view.value;
         const previous = readLocal("zepp_player_last_project", "");
+
+        if(value === "<retry>") {
+            location.reload();
+            return;
+        }
 
         if(value === "<open_folder>") {
             view.value = previous;

@@ -28,6 +28,7 @@ import {CanvasEntry, ImageEntry} from "./types/EnvironmentTypes";
 import {DeviceStateEntry} from "./device_state/DeviceStateEntry";
 import {ZeppAppJson} from "./types/ZeppAppJson";
 import {DeviceStateFetchType, ListDirectoryResponseEntry, PlayerConfig, RenderLevel} from "./types/PlayerTypes";
+import { bundleModule } from "./EsmBundler.js";
 
 const profiles = getDeviceProfiles();
 const assetsBlacklist = ["node_modules/", ".git/"];
@@ -161,7 +162,23 @@ export default abstract class ZeppPlayer {
     getVfsAssetPath(path: string) {
         if(this.appConfig.targets) {
             // zeus-compatibility mode
-            return `${this.getVfsAppPath()}/assets/${Object.keys(this.appConfig.targets)[0]}/${path}`;
+            const target = Object.keys(this.appConfig.targets)[0];
+            const base = `${this.getVfsAppPath()}/assets/`;
+
+            /* v3 templates ship assets as `<target>.<platform>` (e.g. gt.s),
+             * older ones as the bare target name. */
+            const platform = this.profileData.circleScreen ? "r" : "s";
+            const candidates = [
+                `${base}${target}.${platform}/${path}`,
+                `${base}${target}.${platform === "r" ? "s" : "r"}/${path}`,
+                `${base}${target}/${path}`,
+            ];
+
+            for(const candidate of candidates) {
+                if(this.vfs[candidate]) return candidate;
+            }
+
+            return candidates[0];
         }
         return `${this.getVfsAppPath()}/assets/${path}`;
     }
@@ -433,9 +450,28 @@ export default abstract class ZeppPlayer {
 
     protected abstract listDirectory(path: string): Promise<ListDirectoryResponseEntry[]>;
 
-    protected abstract loadFile(path: string): Promise<ArrayBuffer>;
+    protected abstract loadFile(path: string, quiet?: boolean): Promise<ArrayBuffer>;
 
     protected abstract getEvalAdditionalData(path: string): string;
+
+    /**
+     * Reads a project script and rewrites its ES module imports into a single
+     * runnable body. ZeppOS sources use `import`/`export`, while the runtime
+     * executes one flat script per page.
+     */
+    public async buildScriptBody(path: string): Promise<string> {
+        return bundleModule(path, {
+            loadText: async (file: string) => {
+                try {
+                    const data = await this.loadFile(file, true);
+                    return new TextDecoder().decode(data);
+                } catch (e) {
+                    return null;
+                }
+            },
+            platform: this.profileData && this.profileData.circleScreen ? "r" : "s",
+        });
+    }
 
     private handleSecondChanged() {
         const now = new Date();
@@ -588,12 +624,13 @@ export default abstract class ZeppPlayer {
         const appEnv = new AppEnvironment(this);
 
         try {
-            const appJsFile = await this.loadFile(this.projectPath + '/app.js');
-            const appJsText = new TextDecoder().decode(appJsFile);
+            const appJsText = await this.buildScriptBody(this.projectPath + '/app.js');
 
             const extra = this.getEvalAdditionalData(this.projectPath + '/app.js');
             const str = `${extra}\n(${Object.keys(appEnv).toString() }) => {${appJsText};}`;
-            const appJs = eval(str);
+            /* Indirect eval keeps the evaluated script non-strict, so the
+             * implicit globals ZeppOS projects rely on still work. */
+            const appJs = (0, eval)(str);
             appJs(...Object.values(appEnv));
 
             const app = appEnv.__$$hmAppManager$$__.currentApp.app;

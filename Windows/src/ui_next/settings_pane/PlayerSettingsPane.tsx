@@ -7,6 +7,7 @@ import {CssSettingsOption} from "./CssSettingsOption";
 import {CssColorOptions} from "./CssColorOptions";
 import AppSettingsManager from "../../ui_managment/AppSettingsManager";
 import {SettingsListItem} from "./SettingsListItem";
+import {HuamiAccountItem} from "./HuamiAccountItem";
 import I18n from "../../zepp_player/i18n.js";
 import {zpConfirm} from "../../zepp_player/zpDialogs.js";
 
@@ -102,6 +103,8 @@ export function PlayerSettingsPane(props: BackdropProps) {
             </DialogTitle>
             <DialogContent noMargin>
                 <LanguageSelector />
+                <hr />
+                <HuamiAccountItem />
                 <hr />
                 <MobileAccessItem />
                 <hr />

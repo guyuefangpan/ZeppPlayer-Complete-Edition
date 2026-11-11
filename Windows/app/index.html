@@ -53,6 +53,11 @@
             <span data-i18n-title="toolbar.explorer" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_explorer" onclick="zpPanelTab('view_explorer', this)">
                 account_tree
             </span>
+            <!-- Narrow desktop windows turn the code preview into a modal, so
+                 it needs an entry point that the phone dropdown cannot give. -->
+            <span data-i18n-title="toolbar.code" class="material-symbols-outlined bigscreen zp-desktop-only zp-narrow-only" id="toggle_code_modal" onclick="zpOpenCode()">
+                code
+            </span>
             <hr class="zp-desktop-only" />
             <span data-i18n-title="toolbar.overview" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('overview')">
                 apps
@@ -61,19 +66,33 @@
                 settings
             </span>
             <hr class="zp-desktop-only" />
+            <!-- Every zeus command sits in this one dropdown (new project,
+                 build/package, dev, preview, bridge, maintenance). Narrow
+                 windows hide it and fold the same entries into the project
+                 files dropdown below, next to Import. -->
+            <div class="zp-split zp-split--wide" id="zp_split_zeus">
+                <span data-i18n-title="toolbar.zeus" class="material-symbols-outlined zp-split__toggle" id="zp_split_zeus_btn" onclick="zpSplitToggle('zeus')">
+                    handyman
+                </span>
+                <div class="zp-split__menu" id="zp_split_zeus_menu"></div>
+            </div>
             <!-- Phones: import / export / folder collapse into one dropdown. -->
-            <div class="zp-split" id="zp_split_files">
+            <div class="zp-split zp-split--narrow" id="zp_split_files">
                 <span data-i18n-title="toolbar.files" class="material-symbols-outlined zp-split__toggle" id="zp_split_files_btn" onclick="zpSplitToggle('files')">
                     upload_file
                 </span>
                 <div class="zp-split__menu" id="zp_split_files_menu">
+                    <button type="button" class="zp-split__item" data-zeus-dup onclick="zpSplitFile('new')">
+                        <span class="material-symbols-outlined">note_add</span>
+                        <span data-i18n="file.newProject">New project</span>
+                    </button>
                     <button type="button" class="zp-split__item" onclick="zpSplitFile('import')">
                         <span class="material-symbols-outlined">upload_file</span>
                         <span data-i18n="file.import">Import project</span>
                     </button>
-                    <button type="button" class="zp-split__item" onclick="zpSplitFile('export')">
+                    <button type="button" class="zp-split__item" data-zeus-dup onclick="zpSplitFile('export')">
                         <span class="material-symbols-outlined">archive</span>
-                        <span data-i18n="file.export">Export project</span>
+                        <span data-i18n="file.export">Build package</span>
                     </button>
                     <button type="button" class="zp-split__item" onclick="zpSplitFile('folder')">
                         <span class="material-symbols-outlined">folder_open</span>
@@ -81,14 +100,11 @@
                     </button>
                 </div>
             </div>
-            <span data-i18n-title="toolbar.import" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpImportProject()">
+            <span data-i18n-title="toolbar.import" class="material-symbols-outlined bigscreen zp-desktop-only zp-narrow-hide" onclick="zpImportProject()">
                 upload_file
             </span>
-            <span data-i18n-title="toolbar.openFolder" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpOpenProjects()">
+            <span data-i18n-title="toolbar.openFolder" class="material-symbols-outlined bigscreen zp-desktop-only zp-narrow-hide" onclick="zpOpenProjects()">
                 folder_open
-            </span>
-            <span data-i18n-title="toolbar.export" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="zpExportProject()">
-                archive
             </span>
             <span data-i18n-title="toolbar.shortcuts" class="material-symbols-outlined bigscreen zp-desktop-only" onclick="_setReactPane('shortcuts')">
                 keyboard
@@ -192,6 +208,8 @@
     </div>
     <div id="loading" style="display: none;"></div>
     <div id="ng-root"></div>
+    <!-- Dims the page behind the code modal on phones and narrow windows. -->
+    <div id="zp_code_backdrop" class="zp-code-backdrop"></div>
     <div id="zp_drop_overlay" class="zp-drop-overlay">
         <div class="zp-drop-overlay__box">
             <span class="material-symbols-outlined">upload_file</span>

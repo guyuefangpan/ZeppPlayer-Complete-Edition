@@ -31,11 +31,50 @@ import {HmApp} from "./zepp_env/HmApp.js";
 import ZeppPlayer from "./ZeppPlayer";
 import ZeppRuntime from "./ZeppRuntime";
 
+/* ZeppOS sources position widgets in design pixels while the simulator renders
+ * at the emulated screen size, so `px()` has to scale between the two. */
+function designWidthOf(player: ZeppPlayer): number {
+    const cfg: any = player && player.appConfig;
+    if(!cfg) return 0;
+
+    // configVersion v2 keeps one designWidth for the whole app
+    if(typeof cfg.designWidth === "number" && cfg.designWidth > 0) return cfg.designWidth;
+
+    const targets = cfg.targets;
+    if(!targets) return 0;
+
+    const ident = Object.keys(targets)[0];
+    const width = targets[ident] && targets[ident].designWidth;
+    return typeof width === "number" && width > 0 ? width : 0;
+}
+
+/* app.json i18n tables are the source for `getText()` in official templates. */
+function appI18nTable(player: ZeppPlayer): {[key: string]: string} {
+    const cfg: any = (player && player.appConfig) || {};
+    const table = cfg.i18n;
+    if(!table) return {};
+
+    const language = player.deviceState && player.deviceState.OS_LANGUAGE
+        ? player.deviceState.OS_LANGUAGE.value
+        : null;
+
+    return table[language] || table[cfg.defaultLanguage] || table["en-US"] || {};
+}
+
+function makePx(screenWidth: number, designWidth: number) {
+    if(!screenWidth || !designWidth) return (v: number) => v;
+    return (v: number) => Math.round(v * screenWidth / designWidth);
+}
+
 export class AppEnvironment {
     hmApp: HmApp;
     hmFS: HuamiFsMock;
     hmSetting: HuamiSettingMock;
     DeviceRuntimeCore: DeviceRuntimeCoreMock;
+    App: (config: any) => any;
+    px: (v: number) => number;
+    __zp_screen_width: number;
+    __zp_design_width: number;
     self: AppEnvironment;
 
     __$$module$$__: any = {};
@@ -55,6 +94,16 @@ export class AppEnvironment {
         this.hmSetting = new HuamiSettingMock(player);
         this.hmFS = new HuamiFsMock(player);
         this.DeviceRuntimeCore = new DeviceRuntimeCoreMock(player, this.__$$hmAppManager$$__);
+        /* Official templates call the bare `App(...)` global; compiled
+         * packages assign `DeviceRuntimeCore.App(...)` themselves. */
+        this.App = (config: any) => {
+            const app = this.DeviceRuntimeCore.App(config);
+            this.__$$hmAppManager$$__.currentApp.app = app;
+            return app;
+        };
+        this.__zp_screen_width = player.profileData.screenWidth;
+        this.__zp_design_width = designWidthOf(player);
+        this.px = makePx(this.__zp_screen_width, this.__zp_design_width);
     }
 }
 
@@ -77,11 +126,20 @@ export function createPageEnv(runtime: ZeppRuntime, appRuntime: AppEnvironment) 
     object.timer = new TimerMock(runtime);
     object.console = new ConsoleMock(runtime, console);
 
+    // Design-pixel scaling used by official templates (`px(...)`)
+    object.__zp_screen_width = runtime.screen[0];
+    object.__zp_design_width = designWidthOf(runtime.player);
+    object.px = makePx(object.__zp_screen_width, object.__zp_design_width);
+
     // Links
     object.__$$module$$__ = {};
     object.__$$hmAppManager$$__ = appRuntime.__$$hmAppManager$$__;
     object.Logger = object.DeviceRuntimeCore.HmLogger;
     object.WatchFace = (conf: any) => object.DeviceRuntimeCore.WatchFace(conf);
+    object.Page = (conf: any) => object.DeviceRuntimeCore.Page(conf);
+
+    // Translations declared in app.json, used by `@zos/i18n`
+    object.__zp_i18n = appI18nTable(runtime.player);
 
     // Override x to prevent conflict with preact
     object.x = undefined;

@@ -12,7 +12,22 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const url = require("url");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
+
+/* A second instance would start another local server and a second window on
+ * the same project folder, so only one copy may run at a time. */
+let mainWindow = null;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on("second-instance", () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    });
+}
 
 const ROOT_DIR = __dirname;
 const APP_DIR = path.join(ROOT_DIR, "app");
@@ -396,6 +411,762 @@ function zipDirectory(srcDir, zipPath) {
     });
 }
 
+/* ------------------------------------------------------------------ *
+ * Export pipeline
+ *
+ * Projects written with ES module syntax (`import` / `export`) cannot run
+ * on a real device as-is: the watch runtime executes one plain script per
+ * page, so the modules have to be bundled and compiled first. That is what
+ * `zeus build` does (rollup + QuickJS bytecode) and it writes the finished
+ * installer to `<project>/dist/*.zab`.
+ *
+ * Projects that only use CommonJS / plain scripts can be zipped directly;
+ * on Mi Band style devices that archive is distributed with a `.bin`
+ * extension (it is still a plain zip with app.json at its root).
+ * ------------------------------------------------------------------ */
+
+const ESM_SCAN_SKIP_DIRS = new Set([
+    "node_modules", "dist", ".git", ".svn", ".hg", ".idea", ".vscode",
+]);
+
+/* Replace comments and the *contents* of string literals with spaces while
+ * keeping the original length and the quote characters. This lets the ESM
+ * keyword check ignore commented-out code and strings such as
+ * console.log("import x from y"), while still matching `import "./x"`. */
+function maskJsCommentsAndStrings(src) {
+    let out = "";
+    let quote = null;
+    for (let i = 0; i < src.length; i++) {
+        const c = src[i];
+        const n = src[i + 1];
+        if (quote) {
+            if (c === "\\") {
+                out += "  ";
+                i++;
+            } else if (c === quote) {
+                quote = null;
+                out += c;
+            } else {
+                out += c === "\n" ? "\n" : " ";
+            }
+            continue;
+        }
+        if (c === "/" && n === "/") {
+            while (i < src.length && src[i] !== "\n") {
+                out += " ";
+                i++;
+            }
+            out += "\n";
+            continue;
+        }
+        if (c === "/" && n === "*") {
+            out += "  ";
+            i += 2;
+            while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
+                out += src[i] === "\n" ? "\n" : " ";
+                i++;
+            }
+            out += "  ";
+            i++;
+            continue;
+        }
+        if (c === '"' || c === "'" || c === "`") {
+            quote = c;
+            out += c;
+            continue;
+        }
+        out += c;
+    }
+    return out;
+}
+
+const ESM_IMPORT_RE = /(?:^|[^.\w$])import\s*(?:\(|["']|[A-Za-z_$*{])/;
+const ESM_EXPORT_RE = /(?:^|[^.\w$])export\s*(?:default|const|let|var|function|class|async|\{|\*)/;
+
+/* Returns the relative paths of project scripts that use ES module syntax. */
+function scanEsmImports(dir) {
+    const hits = [];
+    const MAX_HITS = 20;
+
+    const walk = (current, depth) => {
+        if (hits.length >= MAX_HITS || depth > 12) return;
+        let entries;
+        try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+        } catch (e) {
+            return;
+        }
+        for (const entry of entries) {
+            if (hits.length >= MAX_HITS) return;
+            const abs = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                if (!ESM_SCAN_SKIP_DIRS.has(entry.name.toLowerCase())) walk(abs, depth + 1);
+                continue;
+            }
+            if (!entry.isFile() || !/\.(js|mjs)$/i.test(entry.name)) continue;
+            let st;
+            try {
+                st = fs.statSync(abs);
+            } catch (e) {
+                continue;
+            }
+            if (st.size > 4 * 1024 * 1024) continue;
+            let src;
+            try {
+                src = fs.readFileSync(abs, "utf8");
+            } catch (e) {
+                continue;
+            }
+            if (!/\b(import|export)\b/.test(src)) continue;
+            const masked = maskJsCommentsAndStrings(src);
+            if (ESM_IMPORT_RE.test(masked) || ESM_EXPORT_RE.test(masked)) {
+                hits.push(path.relative(dir, abs).replace(/\\/g, "/"));
+            }
+        }
+    };
+
+    walk(dir, 0);
+    return hits;
+}
+
+function readAppJson(dir) {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(dir, "app.json"), "utf8"));
+    } catch (e) {
+        return null;
+    }
+}
+
+/* Locate the global zeus launcher without relying on the packaged app's
+ * PATH, which often misses the npm global prefix on Windows. */
+function findZeusCommand() {
+    const names = process.platform === "win32"
+        ? ["zeus.cmd", "zeus.exe", "zeus.ps1"]
+        : ["zeus"];
+    const dirs = [];
+    if (process.env.ZEUS_CLI) {
+        const explicit = String(process.env.ZEUS_CLI).replace(/^"|"$/g, "");
+        try {
+            if (fs.existsSync(explicit)) return explicit;
+        } catch (e) {}
+    }
+    if (process.platform === "win32") {
+        if (process.env.APPDATA) dirs.push(path.join(process.env.APPDATA, "npm"));
+        if (process.env.ProgramFiles) dirs.push(path.join(process.env.ProgramFiles, "nodejs"));
+    }
+    for (const part of String(process.env.PATH || "").split(path.delimiter)) {
+        const clean = part.replace(/^"|"$/g, "").trim();
+        if (clean) dirs.push(clean);
+    }
+    for (const dir of dirs) {
+        for (const name of names) {
+            const candidate = path.join(dir, name);
+            try {
+                if (fs.existsSync(candidate)) return candidate;
+            } catch (e) {}
+        }
+    }
+    return null;
+}
+
+function newestZab(distDir, since) {
+    let best = null;
+    try {
+        for (const name of fs.readdirSync(distDir)) {
+            if (!/\.zab$/i.test(name)) continue;
+            const abs = path.join(distDir, name);
+            const st = fs.statSync(abs);
+            if (!st.isFile() || st.mtimeMs < since - 5000) continue;
+            if (!best || st.mtimeMs > best.mtime) best = { path: abs, mtime: st.mtimeMs };
+        }
+    } catch (e) {}
+    return best;
+}
+
+/* Run `zeus build` inside the project. v2 configs with several targets would
+ * otherwise open an interactive checkbox prompt, so every target is passed
+ * explicitly; v3 builds all targets on its own. */
+function runZeusBuild(dir, zeusCmd) {
+    return new Promise((resolve) => {
+        const appJson = readAppJson(dir);
+        if (!appJson) {
+            return resolve({ ok: false, code: "app_json", msg: "app.json 缺失或格式错误，无法执行 zeus build" });
+        }
+        const targets = appJson.targets && typeof appJson.targets === "object"
+            ? Object.keys(appJson.targets)
+            : [];
+        if (!targets.length) {
+            return resolve({
+                ok: false,
+                code: "config_v1",
+                msg: "该项目的 app.json 使用 Zepp OS 1.0 的 device.targets 配置，当前 zeus build 无法构建。请升级到 v2/v3 的 targets 配置，或去掉项目中的 import 语句后再导出。",
+            });
+        }
+        const configVersion = String(appJson.configVersion || "").toLowerCase();
+        const args = ["build"];
+        if (configVersion !== "v3") args.push("-t", targets.join(","));
+
+        const startedAt = Date.now();
+        let log = "";
+        const append = (buf) => {
+            log += buf.toString();
+            if (log.length > 40000) log = log.slice(-40000);
+        };
+        let child;
+        try {
+            // `spawn` with shell:true is required for the .cmd launcher on
+            // Windows, and the command path must be quoted when npm lives
+            // under "C:\Program Files".
+            const launch = /\s/.test(zeusCmd) ? `"${zeusCmd}"` : zeusCmd;
+            child = spawn(launch, args, {
+                cwd: dir,
+                windowsHide: true,
+                shell: process.platform === "win32",
+                env: Object.assign({}, process.env, { CI: "1", FORCE_COLOR: "0" }),
+            });
+        } catch (e) {
+            return resolve({ ok: false, code: "build_failed", msg: "无法启动 zeus：" + (e.message || e), log });
+        }
+        const timer = setTimeout(() => {
+            try { child.kill(); } catch (e) {}
+        }, 5 * 60 * 1000);
+        child.stdout.on("data", append);
+        child.stderr.on("data", append);
+        child.on("error", (e) => {
+            clearTimeout(timer);
+            resolve({
+                ok: false,
+                code: "zeus_missing",
+                msg: "无法启动 zeus：" + (e.message || e) + "。请先安装：npm i -g @zeppos/zeus-cli",
+                log,
+            });
+        });
+        child.on("close", (code) => {
+            clearTimeout(timer);
+            if (code !== 0) {
+                return resolve({ ok: false, code: "build_failed", msg: "zeus build 失败（退出码 " + code + "）", log });
+            }
+            const zab = newestZab(path.join(dir, "dist"), startedAt);
+            if (!zab) {
+                return resolve({
+                    ok: false,
+                    code: "build_failed",
+                    msg: "zeus build 已完成，但没有在 dist 目录找到新的 .zab 安装包",
+                    log,
+                });
+            }
+            resolve({ ok: true, zabPath: zab.path, log });
+        });
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Zeus toolkit
+ *
+ * The desktop shell exposes the official `zeus` CLI instead of
+ * re-implementing it. Three things are needed for that to feel native:
+ *
+ *  - the login state lives in `~/.zepp/.zeus` (dotenv, three keys), so a
+ *    pasted browser cookie can be written there directly;
+ *  - `zeus create` asks its questions on the terminal, so the answers are
+ *    passed as flags (and the two prompts that cannot be skipped are fed
+ *    through stdin);
+ *  - long running commands stream their output, which is captured into a
+ *    small job registry the renderer polls.
+ * ------------------------------------------------------------------ */
+
+const ZEUS_STORE_PATH = path.join(os.homedir(), ".zepp", ".zeus");
+const ZEUS_LOGIN_PREFIX = "____user_zepp_com__";
+/* Used when the pasted cookie carries no region host. */
+const ZEUS_DEFAULT_CNAME = "api-mifit.huami.com";
+
+function readZeusStore() {
+    const out = {};
+    let text = "";
+    try {
+        text = fs.readFileSync(ZEUS_STORE_PATH, "utf8");
+    } catch (e) {
+        return out;
+    }
+    for (const raw of text.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line || line.charAt(0) === "#") continue;
+        const eq = line.indexOf("=");
+        if (eq < 1) continue;
+        out[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    return out;
+}
+
+function writeZeusStore(store) {
+    fs.mkdirSync(path.dirname(ZEUS_STORE_PATH), { recursive: true });
+    const body = Object.keys(store).map((k) => `${k}=${store[k]}`).join("\n");
+    fs.writeFileSync(ZEUS_STORE_PATH, body, "utf8");
+}
+
+function zeusLoginState() {
+    const store = readZeusStore();
+    const token = store[ZEUS_LOGIN_PREFIX + "token"] || "";
+    const userId = store[ZEUS_LOGIN_PREFIX + "userid"] || "";
+    const cname = store[ZEUS_LOGIN_PREFIX + "cname"] || "";
+    return { loggedIn: !!(token && userId && cname), userId, cname, hasToken: !!token };
+}
+
+/* A pasted value is a `document.cookie` string, a JSON dump, or the redirect
+ * URL the login page lands on; all are flattened to a lowercase name -> value
+ * map. The URL form matters because `zeus login` receives apptoken/userid/
+ * cname as query parameters rather than cookies. */
+function parseCookieJar(raw) {
+    const out = {};
+    const text = String(raw || "").trim();
+    if (!text) return out;
+    const queryAt = text.indexOf("?");
+    if (queryAt > -1) {
+        for (const part of text.slice(queryAt + 1).split(/[&;]+/)) {
+            const item = part.trim();
+            const eq = item.indexOf("=");
+            if (eq < 1) continue;
+            let value = item.slice(eq + 1).trim();
+            try {
+                value = decodeURIComponent(value);
+            } catch (e) {}
+            out[item.slice(0, eq).trim().toLowerCase()] = value;
+        }
+        return out;
+    }
+    if (text.charAt(0) === "{") {
+        try {
+            const json = JSON.parse(text);
+            for (const key of Object.keys(json)) {
+                const value = json[key];
+                if (value === null || typeof value === "object") continue;
+                out[key.toLowerCase()] = String(value);
+            }
+            return out;
+        } catch (e) {}
+    }
+    for (const part of text.split(/[;\n]+/)) {
+        const item = part.trim();
+        if (!item) continue;
+        const eq = item.indexOf("=");
+        if (eq < 1) continue;
+        const name = item.slice(0, eq).trim().toLowerCase();
+        let value = item.slice(eq + 1).trim();
+        if (value.length > 1 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+            value = value.slice(1, -1);
+        }
+        try {
+            value = decodeURIComponent(value);
+        } catch (e) {}
+        if (name) out[name] = value;
+    }
+    return out;
+}
+
+const COOKIE_TOKEN_KEYS = ["apptoken", "app_token", "token", "access_token", "zepp_token"];
+const COOKIE_USER_KEYS = ["userid", "user_id", "uid", "user"];
+const COOKIE_CNAME_KEYS = ["cname", "api_host", "subregionalhost", "sub_regional_host"];
+
+function pickCookieValue(jar, keys) {
+    for (const key of keys) {
+        if (jar[key]) return jar[key];
+    }
+    return "";
+}
+
+function zeusLoginFromCookie(cookie, cnameOverride) {
+    const jar = parseCookieJar(cookie);
+    const token = pickCookieValue(jar, COOKIE_TOKEN_KEYS);
+    const userId = pickCookieValue(jar, COOKIE_USER_KEYS);
+    let cname = pickCookieValue(jar, COOKIE_CNAME_KEYS);
+    const override = String(cnameOverride || "").trim();
+    if (override) cname = override;
+    if (!token) {
+        return {
+            ok: false,
+            code: "token_missing",
+            msg: "Cookie 中没有找到 apptoken。请从 user.zepp.com 复制完整的 Cookie（需包含 apptoken 字段）。",
+        };
+    }
+    if (!userId) {
+        return {
+            ok: false,
+            code: "userid_missing",
+            msg: "Cookie 中没有找到 userid。请确认复制的是登录后的完整 Cookie。",
+        };
+    }
+    if (!cname) cname = ZEUS_DEFAULT_CNAME;
+
+    const store = readZeusStore();
+    store[ZEUS_LOGIN_PREFIX + "token"] = token;
+    store[ZEUS_LOGIN_PREFIX + "userid"] = userId;
+    store[ZEUS_LOGIN_PREFIX + "cname"] = cname;
+    writeZeusStore(store);
+    return { ok: true, login: zeusLoginState() };
+}
+
+function zeusLogout() {
+    const store = readZeusStore();
+    let changed = false;
+    for (const key of ["token", "userid", "cname", "account"]) {
+        const full = ZEUS_LOGIN_PREFIX + key;
+        if (Object.prototype.hasOwnProperty.call(store, full)) {
+            delete store[full];
+            changed = true;
+        }
+    }
+    if (changed) writeZeusStore(store);
+    return { ok: true, login: zeusLoginState() };
+}
+
+/* The installed zeus package, used to read the bundled template list. */
+function zeusPackageDir() {
+    const cmd = findZeusCommand();
+    if (!cmd) return null;
+    let dir = path.dirname(cmd);
+    for (let i = 0; i < 4; i++) {
+        const candidate = path.join(dir, "node_modules", "@zeppos", "zeus-cli");
+        if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+        dir = path.dirname(dir);
+    }
+    return null;
+}
+
+function zeusVersion(pkgDir) {
+    if (!pkgDir) return "";
+    try {
+        return String(JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8")).version || "");
+    } catch (e) {
+        return "";
+    }
+}
+
+/* `zeus create` shows template names produced by lodash.startCase. */
+function startCaseName(dirName) {
+    return String(dirName || "")
+        .split(/[-_\s.]+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+}
+
+const ZEUS_TEMPLATE_FALLBACK = {
+    app: {
+        "1.0": ["Empty", "Calories", "Fetch Api", "Hello World", "Todo List"],
+        "2.0": ["Empty", "Calories", "Fetch Api", "Hello World", "Showcase", "Todo List"],
+        "3.0": ["Empty", "Calories", "Download", "Fetch Api", "Hello World", "Notification", "Todo List"],
+        "4.0": ["Empty", "Calories", "Fetch Api", "Hello World", "Showcase", "Todo List"],
+    },
+    watchface: {
+        "1.0": ["Empty", "Timer"],
+        "2.0": ["Empty"],
+    },
+    workout_extension: {
+        "3.5": ["Empty", "Running Pace Master"],
+    },
+};
+
+const ZEUS_TYPE_DIR = {
+    app: "app",
+    watchface: "watchface",
+    workout_extension: "workout-extension",
+};
+
+/* Which API levels each project type actually ships templates for. Anything
+ * else would make `zeus create` fall back to an interactive picker. */
+const ZEUS_TYPE_LEVELS = {
+    app: ["1.0", "2.0", "3.0", "4.0"],
+    watchface: ["1.0", "2.0"],
+    workout_extension: ["3.5"],
+};
+
+const ZEUS_SHAPES = ["r", "s", "b"];
+
+function zeusTemplateList(appType, apiLevel) {
+    const type = ZEUS_TYPE_DIR[appType] ? appType : "app";
+    const level = String(apiLevel || "3.0");
+    const pkgDir = zeusPackageDir();
+    if (pkgDir) {
+        const dir = path.join(pkgDir, "private-modules", "zeppos-app-utils", "dist",
+            "public", "template", "os" + level, ZEUS_TYPE_DIR[type]);
+        try {
+            const names = fs.readdirSync(dir, { withFileTypes: true })
+                .filter((e) => e.isDirectory())
+                .map((e) => startCaseName(e.name))
+                .sort((a, b) => a.localeCompare(b));
+            if (names.length) {
+                const empty = names.filter((n) => n === "Empty");
+                const rest = names.filter((n) => n !== "Empty");
+                return empty.concat(rest);
+            }
+        } catch (e) {}
+    }
+    const fallback = ZEUS_TEMPLATE_FALLBACK[type] || {};
+    return (fallback[level] || []).slice();
+}
+
+const ANSI_RE = /\u001b\[[0-9;]*m/g;
+const zeusJobs = new Map();
+let zeusJobSeq = 0;
+
+function pushZeusLog(job, text) {
+    const clean = String(text).replace(ANSI_RE, "");
+    for (const line of clean.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        job.lines.push(line.replace(/\s+$/, ""));
+    }
+    if (job.lines.length > 600) job.lines.splice(0, job.lines.length - 600);
+}
+
+function startZeusJob(opts) {
+    const zeus = findZeusCommand();
+    if (!zeus) {
+        return {
+            ok: false,
+            code: "zeus_missing",
+            msg: "未找到 zeus 命令，请先安装：npm i -g @zeppos/zeus-cli",
+        };
+    }
+    if (!opts.cwd || !fs.existsSync(opts.cwd)) {
+        return { ok: false, msg: "项目目录不存在" };
+    }
+    const id = "zj" + (++zeusJobSeq);
+    const job = {
+        id,
+        lines: [],
+        running: true,
+        code: null,
+        error: "",
+        cwd: opts.cwd,
+        action: opts.action,
+        startedAt: Date.now(),
+        child: null,
+        timer: null,
+    };
+    zeusJobs.set(id, job);
+    if (zeusJobs.size > 12) {
+        for (const [key, value] of zeusJobs) {
+            if (!value.running && zeusJobs.size > 8) zeusJobs.delete(key);
+        }
+    }
+
+    const launch = /\s/.test(zeus) ? `"${zeus}"` : zeus;
+    const wantsInput = typeof opts.stdin === "string";
+    // shell:true concatenates argv without quoting on Windows, so an argument
+    // with a space (a project name) would be split into two.
+    const args = process.platform === "win32"
+        ? opts.args.map((a) => (/[\s"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a))
+        : opts.args;
+    try {
+        job.child = spawn(launch, args, {
+            cwd: opts.cwd,
+            windowsHide: true,
+            shell: process.platform === "win32",
+            // Commands that ask a question we cannot answer get EOF on stdin,
+            // which makes inquirer accept the highlighted default instead of
+            // waiting forever on an open pipe.
+            stdio: [wantsInput ? "pipe" : "ignore", "pipe", "pipe"],
+            env: Object.assign({}, process.env, { CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" }),
+        });
+    } catch (e) {
+        job.running = false;
+        job.code = -1;
+        job.error = "无法启动 zeus：" + (e.message || e);
+        return { ok: false, msg: job.error };
+    }
+
+    if (wantsInput) {
+        setTimeout(() => {
+            try {
+                job.child.stdin.write(opts.stdin);
+                // Closing the pipe right after the answer keeps a prompt that
+                // is never reached from blocking the process forever.
+                setTimeout(() => {
+                    try { job.child.stdin.end(); } catch (e) {}
+                }, 400);
+            } catch (e) {}
+        }, 1200);
+    }
+
+    job.child.stdout.on("data", (buf) => pushZeusLog(job, buf.toString()));
+    job.child.stderr.on("data", (buf) => pushZeusLog(job, buf.toString()));
+    job.child.on("error", (e) => {
+        job.running = false;
+        job.code = -1;
+        job.error = "无法启动 zeus：" + (e.message || e);
+        pushZeusLog(job, job.error);
+    });
+    job.child.on("close", (code) => {
+        job.running = false;
+        job.code = code;
+        if (job.timer) clearTimeout(job.timer);
+        if (typeof opts.onDone === "function") {
+            try { opts.onDone(job); } catch (e) {}
+        }
+    });
+
+    const limit = opts.timeout || 10 * 60 * 1000;
+    if (limit > 0) {
+        job.timer = setTimeout(() => {
+            if (!job.running) return;
+            pushZeusLog(job, "操作超时，已停止。");
+            try { job.child.kill(); } catch (e) {}
+        }, limit);
+    }
+    return { ok: true, jobId: id };
+}
+
+/* `zeus create` matches `--template` against the display name produced by
+ * lodash.startCase, except that the app and workout-extension prompts map
+ * "Hello World" to "Hello_World" before comparing. */
+function zeusCreateTemplateArg(appType, template) {
+    if ((appType === "app" || appType === "workout_extension") && template === "Hello World") {
+        return "Hello_World";
+    }
+    return template;
+}
+
+/* `zeus create` still asks a question of its own when the Empty template is
+ * used: whether the app has an app-side component (and, when it has one,
+ * whether it also gets a settings component). A "yes" can be passed as a
+ * flag, but the boolean option cannot express "no", so the negative answer is
+ * written to stdin. Only one prompt can remain at that point, and inquirer
+ * resolves a confirm prompt as soon as the key arrives.
+ *
+ * The platform checkbox that API 1.0/2.0 projects show is suppressed with an
+ * empty `--buildTargets=`: an empty list keeps the template's own targets. */
+function zeusCreateArgs(opts) {
+    const args = [
+        "create", opts.name,
+        "--apptype=" + opts.appType,
+        "--apilevel=" + opts.apiLevel,
+        "--template=" + opts.template,
+        "--shape=" + opts.shapes.join(","),
+        "--buildTargets=",
+    ];
+    if (opts.withAppSide) args.push("--withappside=true");
+    if (opts.withSettings) args.push("--withsettings=true");
+    return args;
+}
+
+function buildCreateAnswers(opts) {
+    if (opts.appType !== "app" || opts.template !== "Empty") return undefined;
+    if (opts.withAppSide && opts.withSettings) return undefined;
+    return "n";
+}
+
+function startZeusCreate(body) {
+    const projectsDir = getProjectsDir();
+    const rawName = String(body.name || "").trim();
+    if (!rawName) return { ok: false, msg: "请填写项目名称" };
+    const safeName = rawName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+        .replace(/\s+/g, "-").replace(/^\.+/, "").trim();
+    if (!safeName) return { ok: false, msg: "项目名称不合法" };
+    const name = uniqueDirName(projectsDir, safeName);
+
+    const appType = ZEUS_TYPE_DIR[body.appType] ? body.appType : "app";
+    const levels = ZEUS_TYPE_LEVELS[appType];
+    let apiLevel = String(body.apiLevel || "");
+    if (levels.indexOf(apiLevel) < 0) apiLevel = levels[levels.length - 1];
+
+    let template = String(body.template || "Empty");
+    const available = zeusTemplateList(appType, apiLevel);
+    if (available.length && available.indexOf(template) < 0) template = available[0];
+
+    let shapes = Array.isArray(body.shapes) ? body.shapes.filter((s) => ZEUS_SHAPES.indexOf(s) > -1) : [];
+    if (!shapes.length) shapes = ["r"];
+
+    const withAppSide = appType === "app" && !!body.withAppSide;
+    const withSettings = withAppSide && !!body.withSettings;
+
+    const opts = {
+        name,
+        appType,
+        apiLevel,
+        template: zeusCreateTemplateArg(appType, template),
+        shapes,
+        withAppSide,
+        withSettings,
+    };
+
+    const started = startZeusJob({
+        action: "create",
+        cwd: projectsDir,
+        args: zeusCreateArgs(opts),
+        stdin: buildCreateAnswers({ appType, template, withAppSide, withSettings }),
+        timeout: 15 * 60 * 1000,
+    });
+    if (!started.ok) return started;
+    return {
+        ok: true,
+        jobId: started.jobId,
+        name,
+        path: path.join(projectsDir, name),
+        template,
+        apiLevel,
+    };
+}
+
+function startZeusProjectJob(body) {
+    const action = String(body.action || "");
+    const table = {
+        prune: { args: ["prune"], timeout: 5 * 60 * 1000 },
+        status: { args: ["status"], timeout: 2 * 60 * 1000, global: true },
+        config: { args: ["config", "list"], timeout: 2 * 60 * 1000, global: true },
+        "cache-update": { args: ["cache", "update"], timeout: 5 * 60 * 1000, global: true },
+        "cache-clean": { args: ["cache", "clean"], timeout: 2 * 60 * 1000, global: true },
+        preview: { args: ["preview"], timeout: 10 * 60 * 1000 },
+        bridge: { args: ["bridge"], timeout: 0 },
+    };
+    const spec = table[action];
+    if (!spec) return { ok: false, msg: "不支持的 zeus 操作：" + action };
+    /* status / config / cache do not read the project, so they must work even
+     * when no project is selected. */
+    const dir = spec.global ? getProjectsDir() : resolveProjectDir(body.projectUrl);
+    if (!dir) return { ok: false, msg: "找不到项目目录" };
+    if ((action === "preview" || action === "bridge") && !zeusLoginState().loggedIn) {
+        return {
+            ok: false,
+            code: "login_required",
+            msg: "该操作需要华米账号，请先在「设置 → 华米账号」中粘贴 Cookie 登录。",
+        };
+    }
+    const started = startZeusJob({
+        action,
+        cwd: dir,
+        args: spec.args,
+        timeout: spec.timeout,
+    });
+    if (!started.ok) return started;
+    return { ok: true, jobId: started.jobId, name: path.basename(dir) };
+}
+
+/* Zip the project *contents* (app.json at the archive root), which is the
+ * layout device installers expect for a `.bin` package. bsdtar is preferred
+ * because PowerShell's Compress-Archive writes backslash separators, which
+ * some installers refuse to read. */
+function zipProjectContents(srcDir, zipPath) {
+    return new Promise((resolve) => {
+        let entries;
+        try {
+            entries = fs.readdirSync(srcDir);
+        } catch (e) {
+            return resolve(e.message || String(e));
+        }
+        if (!entries.length) return resolve("项目目录为空");
+        execFile("tar", ["-a", "-cf", zipPath, "-C", srcDir, "--", ...entries],
+            { windowsHide: true }, (err) => {
+                if (!err) return resolve(null);
+                const esc = (s) => String(s).replace(/'/g, "''");
+                const cmd = `Compress-Archive -Path '${esc(path.join(srcDir, "*"))}' -DestinationPath '${esc(zipPath)}' -Force`;
+                execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd],
+                    { windowsHide: true }, (err2) => {
+                        resolve(err2 ? (err2.message || String(err2)) : null);
+                    });
+            });
+    });
+}
+
 function bumpChangeCount() {
     changeSeq++;
 }
@@ -596,20 +1367,179 @@ function handleApi(req, res, pathname) {
             if (!dir) return sendJson(res, { ok: false, msg: "找不到项目目录" }, 404);
             const win = BrowserWindow.getAllWindows()[0];
             const base = path.basename(dir);
+            const esmFiles = scanEsmImports(dir);
+            const needsBuild = esmFiles.length > 0;
+
+            // Used by the plain-browser export path, which cannot open a native
+            // save dialog but still has to know whether a build is required.
+            if (body.probe) {
+                return sendJson(res, { ok: true, needsBuild, imports: esmFiles });
+            }
+
+            if (needsBuild) {
+                const zeus = findZeusCommand();
+                if (!zeus) {
+                    return sendJson(res, {
+                        ok: false,
+                        code: "zeus_missing",
+                        needsBuild: true,
+                        imports: esmFiles,
+                        msg: "检测到 import 语句，需要 zeus build 构建安装包，但未找到 zeus 命令。请先执行：npm i -g @zeppos/zeus-cli",
+                    }, 400);
+                }
+                dialog.showSaveDialog(win || undefined, {
+                    title: "构建并导出安装包 / Build and export package",
+                    defaultPath: path.join(app.getPath("documents"), `${base}.zab`),
+                    filters: [{ name: "ZAB 安装包", extensions: ["zab"] }],
+                }).then(async (r) => {
+                    if (r.canceled || !r.filePath) {
+                        return sendJson(res, { ok: false, cancelled: true });
+                    }
+                    let zabPath = r.filePath;
+                    if (!path.extname(zabPath)) zabPath += ".zab";
+                    const build = await runZeusBuild(dir, zeus);
+                    if (!build.ok) {
+                        return sendJson(res, {
+                            ok: false,
+                            code: build.code || "build_failed",
+                            needsBuild: true,
+                            imports: esmFiles,
+                            msg: build.msg,
+                            log: String(build.log || "").slice(-4000),
+                        }, 500);
+                    }
+                    try {
+                        fs.copyFileSync(build.zabPath, zabPath);
+                    } catch (e) {
+                        return sendJson(res, { ok: false, msg: "复制安装包失败：" + (e.message || e) }, 500);
+                    }
+                    sendJson(res, {
+                        ok: true,
+                        path: zabPath,
+                        mode: "zeus",
+                        imports: esmFiles,
+                        package: path.basename(build.zabPath),
+                    });
+                }).catch((e) => sendJson(res, { ok: false, msg: String(e && e.message || e) }, 500));
+                return;
+            }
+
             dialog.showSaveDialog(win || undefined, {
                 title: "导出项目 / Export project",
-                defaultPath: path.join(app.getPath("documents"), `${base}.zip`),
-                filters: [{ name: "ZIP", extensions: ["zip"] }],
+                defaultPath: path.join(app.getPath("documents"), `${base}.bin`),
+                filters: [{ name: "BIN 安装包", extensions: ["bin"] }],
             }).then(async (r) => {
                 if (r.canceled || !r.filePath) {
                     return sendJson(res, { ok: false, cancelled: true });
                 }
-                let zipPath = r.filePath;
-                if (!/\.zip$/i.test(zipPath)) zipPath += ".zip";
-                const err = await zipDirectory(dir, zipPath);
+                let binPath = r.filePath;
+                if (!/\.bin$/i.test(binPath)) {
+                    binPath = binPath.replace(/\.[^./\\]*$/, "") + ".bin";
+                }
+                // tar/Compress-Archive pick the archive format from the file
+                // extension, so build the zip first and rename it afterwards.
+                const tmpZip = path.join(os.tmpdir(), `zp_export_${Date.now()}_${Math.random().toString(36).slice(2)}.zip`);
+                const err = await zipProjectContents(dir, tmpZip);
                 if (err) return sendJson(res, { ok: false, msg: "打包失败：" + err }, 500);
-                sendJson(res, { ok: true, path: zipPath });
+                try {
+                    fs.copyFileSync(tmpZip, binPath);
+                } catch (e) {
+                    return sendJson(res, { ok: false, msg: "写入文件失败：" + (e.message || e) }, 500);
+                } finally {
+                    fs.rm(tmpZip, { force: true }, () => {});
+                }
+                sendJson(res, { ok: true, path: binPath, mode: "zip" });
             }).catch((e) => sendJson(res, { ok: false, msg: String(e && e.message || e) }, 500));
+        });
+    }
+
+    if (pathname === "/api/zeus/info") {
+        const pkgDir = zeusPackageDir();
+        return sendJson(res, {
+            ok: true,
+            installed: !!findZeusCommand(),
+            version: zeusVersion(pkgDir),
+            login: zeusLoginState(),
+            types: ZEUS_TYPE_LEVELS,
+            shapes: ZEUS_SHAPES,
+        });
+    }
+
+    if (pathname === "/api/zeus/login") {
+        if (req.method !== "POST") {
+            return sendJson(res, { ok: false, msg: "Method not allowed" }, 405);
+        }
+        return readJsonBody(req, res, (body) => {
+            try {
+                sendJson(res, zeusLoginFromCookie(body.cookie, body.cname));
+            } catch (e) {
+                sendJson(res, { ok: false, msg: String(e && e.message || e) }, 500);
+            }
+        });
+    }
+
+    if (pathname === "/api/zeus/logout") {
+        if (req.method !== "POST") {
+            return sendJson(res, { ok: false, msg: "Method not allowed" }, 405);
+        }
+        try {
+            sendJson(res, zeusLogout());
+        } catch (e) {
+            sendJson(res, { ok: false, msg: String(e && e.message || e) }, 500);
+        }
+        return;
+    }
+
+    if (pathname === "/api/zeus/templates") {
+        return sendJson(res, {
+            ok: true,
+            templates: zeusTemplateList(String(q.appType || "app"), String(q.apiLevel || "3.0")),
+        });
+    }
+
+    if (pathname === "/api/zeus/run") {
+        if (req.method !== "POST") {
+            return sendJson(res, { ok: false, msg: "Method not allowed" }, 405);
+        }
+        return readJsonBody(req, res, (body) => {
+            try {
+                const action = String(body.action || "");
+                const result = action === "create" ? startZeusCreate(body) : startZeusProjectJob(body);
+                sendJson(res, result, result.ok ? 200 : 400);
+            } catch (e) {
+                sendJson(res, { ok: false, msg: String(e && e.message || e) }, 500);
+            }
+        });
+    }
+
+    if (pathname === "/api/zeus/job") {
+        const job = zeusJobs.get(String(q.id || ""));
+        if (!job) return sendJson(res, { ok: false, msg: "任务不存在" }, 404);
+        let from = parseInt(q.from, 10);
+        if (!(from >= 0)) from = 0;
+        if (from > job.lines.length) from = 0;
+        return sendJson(res, {
+            ok: true,
+            running: job.running,
+            code: job.code,
+            error: job.error,
+            action: job.action,
+            lines: job.lines.slice(from),
+            next: job.lines.length,
+        });
+    }
+
+    if (pathname === "/api/zeus/stop") {
+        if (req.method !== "POST") {
+            return sendJson(res, { ok: false, msg: "Method not allowed" }, 405);
+        }
+        return readJsonBody(req, res, (body) => {
+            const job = zeusJobs.get(String(body.id || ""));
+            if (!job) return sendJson(res, { ok: false, msg: "任务不存在" }, 404);
+            try {
+                if (job.child) job.child.kill();
+            } catch (e) {}
+            sendJson(res, { ok: true });
         });
     }
 
@@ -698,10 +1628,14 @@ function handleApi(req, res, pathname) {
         if (!dir) return sendJson(res, { ok: false, msg: "找不到项目目录" }, 404);
 
         const base = path.basename(dir);
+        const asBin = q.format === "bin";
+        const ext = asBin ? "bin" : "zip";
         const tmpZip = path.join(os.tmpdir(), `zp_export_${Date.now()}_${Math.random().toString(36).slice(2)}.zip`);
         const cleanup = () => fs.rm(tmpZip, { force: true }, () => {});
 
-        zipDirectory(dir, tmpZip).then((err) => {
+        // `format=bin` is the device-installer layout: app.json at the archive
+        // root, still a plain zip behind the extension.
+        (asBin ? zipProjectContents(dir, tmpZip) : zipDirectory(dir, tmpZip)).then((err) => {
             if (err) {
                 cleanup();
                 return sendJson(res, { ok: false, msg: "打包失败：" + err }, 500);
@@ -710,7 +1644,7 @@ function handleApi(req, res, pathname) {
             res.setHeader("Content-Type", "application/zip");
             res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             res.setHeader("Content-Disposition",
-                `attachment; filename="${ascii}.zip"; filename*=UTF-8''${encodeURIComponent(base)}.zip`);
+                `attachment; filename="${ascii}.${ext}"; filename*=UTF-8''${encodeURIComponent(base)}.${ext}`);
             const stream = fs.createReadStream(tmpZip);
             stream.on("error", () => {
                 cleanup();
@@ -895,6 +1829,10 @@ function createWindow() {
     });
 
     win.loadURL(`http://127.0.0.1:${PORT}/`);
+    mainWindow = win;
+    win.on("closed", () => {
+        if (mainWindow === win) mainWindow = null;
+    });
 }
 
 /* URLs other devices on the same network can use to reach the app. */
@@ -935,6 +1873,7 @@ function listenWithRetry() {
 }
 
 app.whenReady().then(async () => {
+    if (!hasSingleInstanceLock) return;
     getProjectsDir();
     try {
         await listenWithRetry();

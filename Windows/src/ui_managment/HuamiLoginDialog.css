@@ -1,0 +1,43 @@
+/* Huami account cookie login dialog. */
+
+.zp-hl__steps {
+    margin: 6px 0 4px;
+    padding-left: 20px;
+    font-size: 12px;
+    line-height: 1.6;
+    opacity: .8;
+}
+
+.zp-hl__hint {
+    margin: 0 0 10px;
+    font-size: 11px;
+    line-height: 1.55;
+    opacity: .6;
+}
+
+.zp-hl__cookie {
+    width: 100%;
+    min-height: 96px;
+    box-sizing: border-box;
+    resize: vertical;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px;
+    background: var(--input, #444);
+    color: var(--input-text, #fff);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.zp-hl__cname {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px;
+    background: var(--input, #444);
+    color: var(--input-text, #fff);
+    font-family: inherit;
+    font-size: 13px;
+}

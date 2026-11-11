@@ -55,11 +55,14 @@ window.zpPanelTab = (panelId, el) => {
     AppSettingsManager.setObject("activePanel", panelId);
 };
 
-/* The code panel is a full-screen modal on phones (see index.css). Kept at
- * module scope so the toolbar button keeps working when init() fails. */
+/* The code panel is a modal on phones and in narrow desktop windows (see
+ * index.css). Kept at module scope so the toolbar button keeps working when
+ * init() fails. */
 window.zpOpenCode = () => {
     try {
-        if(!document.body.classList.contains("zp-mobile")) return;
+        const modal = document.body.classList.contains("zp-mobile")
+            || document.body.classList.contains("zp-narrow-code");
+        if(!modal) return;
         document.body.classList.add("zp-code-open");
         const item = document.querySelector('.zp-split__item[data-panel="code"]');
         if(item) item.classList.add("active");
@@ -324,8 +327,12 @@ export class ToolbarManager {
         const modalOpen = !!document.querySelector(".ui-backdrop__visible");
 
         if(token === "Escape") {
+            // Esc inside the in-file search closes the search row, not the
+            // whole code panel.
+            if(e.target && e.target.closest && e.target.closest(".zpc__search")) return;
             if(document.body.classList.contains("zp-code-open")) {
-                window.zpCloseCode();
+                const close = window.zpRequestCloseCode || window.zpCloseCode;
+                close();
             } else if(modalOpen) {
                 window._setReactPane("");
             } else if(ToolbarManager.isTypingTarget(e)) {

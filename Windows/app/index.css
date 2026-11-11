@@ -132,6 +132,16 @@ aside.caption {
     display: none;
 }
 
+/* Shown only when a desktop window is narrow enough for the code preview to
+ * become a modal (see ViewMode.js); it is the entry point for that modal. */
+.zp-narrow-only {
+    display: none;
+}
+
+body.zp-narrow-code:not(.zp-mobile) .zp-narrow-only {
+    display: inline-flex;
+}
+
 #toolbar_side.watchface > .btn_wf,
 #toolbar_side.app > .btn_app{
     display: block;
@@ -386,6 +396,41 @@ a:link, a:visited {
     display: block;
 }
 
+/* Wide desktop only: once the window is wider than the three columns need,
+ * the console and the code preview share the surplus instead of the console
+ * swallowing all of it. Phones and narrow desktop windows (code modal) keep
+ * their own layout. */
+@media (min-width: 1240px) {
+    body:not(.zp-mobile):not(.zp-narrow-code) .player_root {
+        display: grid;
+        grid-template-columns: auto minmax(300px, 1fr) minmax(640px, 1.5fr) auto;
+        align-items: start;
+        column-gap: 8px;
+        padding-right: 8px;
+    }
+
+    body:not(.zp-mobile):not(.zp-narrow-code) .root {
+        display: contents;
+    }
+
+    body:not(.zp-mobile):not(.zp-narrow-code) .left_panel {
+        width: auto;
+        min-width: 0;
+        max-width: none;
+        margin: 8px 0 0 0;
+    }
+
+    body:not(.zp-mobile):not(.zp-narrow-code) .code_panel {
+        min-width: 0;
+        max-width: none;
+        margin-top: 8px;
+    }
+
+    body:not(.zp-mobile):not(.zp-narrow-code) .display_base {
+        margin-top: 8px;
+    }
+}
+
 /* Mobile */
 
 @media all and (max-width: 360px) {
@@ -625,12 +670,28 @@ body.zp-mobile .zp-desktop-only {
 
 /* Grouped toolbar dropdown. The toggle keeps the size of a plain icon button
  * and mirrors the active panel; the menu is positioned in JS so the toolbar's
- * own scrolling can never clip it. */
-body.zp-mobile .zp-split {
-    display: inline-flex;
+ * own scrolling can never clip it.
+ *
+ * Phones show the dropdowns instead of the individual icons; a desktop window
+ * shows the zeus dropdown (and, once it gets narrow, the project-files one). */
+.zp-split {
     position: relative;
     flex: 0 0 auto;
     align-items: center;
+}
+
+body.zp-mobile .zp-split,
+body:not(.zp-mobile) .zp-split--wide,
+body.zp-narrow-code:not(.zp-mobile) .zp-split--narrow {
+    display: inline-flex;
+}
+
+/* Phones have no zeus bridge, and a narrow desktop folds the zeus entries into
+ * the project-files dropdown instead of showing a second one. */
+body.zp-mobile #zp_split_zeus,
+body.zp-narrow-code:not(.zp-mobile) .zp-split--wide,
+body.zp-narrow-code:not(.zp-mobile) .zp-narrow-hide {
+    display: none;
 }
 
 /* The panel and file dropdowns used to sit flush against each other once the
@@ -646,7 +707,7 @@ body.zp-mobile #zp_split_files {
     margin-right: auto;
 }
 
-body.zp-mobile .zp-split__toggle {
+.zp-split__toggle {
     position: relative;
     flex: 0 0 auto;
     box-sizing: border-box;
@@ -668,7 +729,7 @@ body.zp-mobile .zp-split__toggle {
 
 /* Small caret so the grouped button reads as a dropdown instead of looking
  * like the plain panel icon it replaced. */
-body.zp-mobile .zp-split__toggle::after {
+.zp-split__toggle::after {
     content: "";
     position: absolute;
     right: 3px;
@@ -681,13 +742,25 @@ body.zp-mobile .zp-split__toggle::after {
     opacity: .7;
 }
 
-body.zp-mobile .zp-split.open .zp-split__toggle,
-body.zp-mobile .zp-split__toggle:hover {
+.zp-split.open .zp-split__toggle,
+.zp-split__toggle:hover {
     background-color: rgba(0, 0, 0, .2);
     color: var(--accent);
 }
 
-body.zp-mobile .zp-split__menu {
+/* A desktop keeps the plain icon size, so the dropdown sits in the toolbar
+ * exactly like the buttons it replaced. */
+body:not(.zp-mobile) .zp-split__toggle {
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 6px;
+    font-size: 24px;
+    background-color: transparent;
+}
+
+.zp-split__menu {
     display: none;
     position: fixed;
     z-index: 90;
@@ -700,11 +773,11 @@ body.zp-mobile .zp-split__menu {
     box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
 }
 
-body.zp-mobile .zp-split.open .zp-split__menu {
+.zp-split.open .zp-split__menu {
     display: flex;
 }
 
-body.zp-mobile .zp-split__item {
+.zp-split__item {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -722,18 +795,24 @@ body.zp-mobile .zp-split__item {
     cursor: pointer;
 }
 
-body.zp-mobile .zp-split__item > .material-symbols-outlined {
+.zp-split__item > .material-symbols-outlined {
     font-size: 20px;
     line-height: 1;
 }
 
-body.zp-mobile .zp-split__item:hover,
-body.zp-mobile .zp-split__item:active {
+.zp-split__item:hover,
+.zp-split__item:active {
     background: rgba(255, 255, 255, .1);
 }
 
-body.zp-mobile .zp-split__item.active {
+.zp-split__item.active {
     color: var(--accent);
+}
+
+.zp-split__sep {
+    height: 1px;
+    margin: 3px 4px;
+    background: rgba(255, 255, 255, .12);
 }
 
 body.zp-mobile #project_select {
@@ -1028,39 +1107,71 @@ body.zp-mobile .display_base canvas {
     max-height: 100%;
 }
 
-/* Code preview: a full-screen modal on phones, opened from the panels
- * dropdown. The panel stays mounted while hidden so edits are kept when it is
- * reopened. */
+/* Dims the page behind the code modal (phones and narrow desktop windows). */
+.zp-code-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 69;
+    background: rgba(24, 24, 24, .55);
+}
+
+body.zp-code-open .zp-code-backdrop {
+    display: block;
+}
+
+/* Code preview: a centred modal on phones and in narrow desktop windows,
+ * opened from the panels dropdown (phones) or the code icon (desktop). It
+ * stays mounted while hidden so edits are kept when it is reopened. */
 body.zp-mobile #code_panel {
     display: none;
 }
 
 body.zp-mobile.zp-code-open #code_panel {
-    display: block;
+    display: flex;
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     z-index: 70;
-    width: auto;
+    width: min(94vw, 720px);
+    height: min(84vh, 880px);
+    height: min(84dvh, 880px);
     min-width: 0;
     max-width: none;
-    height: auto;
     min-height: 0;
+    max-height: none;
     margin: 0;
-    border-radius: 0;
-    box-shadow: none;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
     background: var(--editor);
     overflow: hidden;
 }
 
-body.zp-mobile.zp-code-open #code_panel .zpc__head {
-    padding-top: calc(6px + env(safe-area-inset-top));
+/* Narrow desktop windows: the three-column layout would squeeze the editor
+ * below a usable width, so the code preview becomes the same modal. */
+body.zp-narrow-code:not(.zp-mobile) #code_panel {
+    display: none;
 }
 
-body.zp-mobile.zp-code-open #code_panel .zpc__status {
-    padding-bottom: calc(2px + env(safe-area-inset-bottom));
+body.zp-narrow-code:not(.zp-mobile).zp-code-open #code_panel {
+    display: flex;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 70;
+    width: min(92vw, 1080px);
+    height: min(88vh, 900px);
+    min-width: 0;
+    max-width: none;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    background: var(--editor);
+    overflow: hidden;
 }
 
 body.zp-mobile.zp-code-open #code_panel .zpc__root {

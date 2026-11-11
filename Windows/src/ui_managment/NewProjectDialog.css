@@ -1,0 +1,228 @@
+/* New project wizard (official template download). */
+
+.zp-np {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, .55);
+    font-family: Arial, Helvetica, sans-serif;
+    animation: zp-np-fade .12s ease-out;
+}
+
+@keyframes zp-np-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.zp-np__dialog {
+    width: min(560px, 100%);
+    max-height: 86vh;
+    max-height: 86dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel, #333);
+    color: var(--panel-text, #fff);
+    border-radius: 12px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, .55);
+    overflow: hidden;
+    animation: zp-np-pop .14s ease-out;
+}
+
+@keyframes zp-np-pop {
+    from { transform: scale(.97); opacity: .6; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.zp-np__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 18px 8px;
+}
+
+.zp-np__headIcon {
+    font-size: 24px;
+    color: var(--accent, #ff7043);
+}
+
+.zp-np__title {
+    flex: 1;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.zp-np__close {
+    padding: 2px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.zp-np__close:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, .1);
+}
+
+.zp-np__body {
+    padding: 4px 18px 18px;
+    overflow-y: auto;
+}
+
+.zp-np__label {
+    margin: 14px 0 8px;
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    opacity: .6;
+}
+
+.zp-np__types {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.zp-np__type {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .04);
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.zp-np__type:hover {
+    background: rgba(255, 255, 255, .08);
+}
+
+.zp-np__type.active {
+    border-color: var(--accent, #ff7043);
+    background: rgba(255, 112, 67, .14);
+}
+
+.zp-np__type > .material-symbols-outlined {
+    font-size: 26px;
+    color: var(--accent, #ff7043);
+}
+
+.zp-np__typeText {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.zp-np__typeText b {
+    font-size: 14px;
+}
+
+.zp-np__typeText small {
+    font-size: 11px;
+    opacity: .6;
+}
+
+.zp-np__versions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.zp-np__ver {
+    min-width: 64px;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px;
+    background: var(--input, #444);
+    color: var(--input-text, #fff);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.zp-np__ver:hover {
+    border-color: rgba(255, 255, 255, .35);
+}
+
+.zp-np__ver.active {
+    border-color: var(--accent, #ff7043);
+    background: var(--accent, #ff7043);
+    color: #fff;
+    font-weight: 600;
+}
+
+.zp-np__source {
+    margin-top: 14px;
+    font-size: 11px;
+    opacity: .45;
+    word-break: break-word;
+}
+
+.zp-np__status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+    opacity: .8;
+    word-break: break-word;
+}
+
+.zp-np__status.error {
+    color: #ff8a80;
+    opacity: 1;
+}
+
+.zp-np__foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 18px 16px;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+.zp-np__btn {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 8px;
+    background: var(--input, #555);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.zp-np__btn:hover {
+    filter: brightness(1.1);
+}
+
+.zp-np__btn.primary {
+    background: var(--accent, #ff7043);
+    font-weight: 600;
+}
+
+.zp-np__btn:disabled {
+    opacity: .5;
+    cursor: default;
+    filter: none;
+}
+
+body.zp-mobile .zp-np {
+    padding: 12px;
+}
+
+body.zp-mobile .zp-np__dialog {
+    max-height: 84vh;
+    max-height: 84dvh;
+}

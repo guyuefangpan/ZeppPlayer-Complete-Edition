@@ -30,6 +30,8 @@ import I18n from "./zepp_player/i18n.js";
 import {zpAlert} from "./zepp_player/zpDialogs.js";
 import {showToast} from "./zepp_player/zpToast.js";
 import {initViewMode, isDesktopShell, isAndroidApp, isMobileView} from "./ui_managment/ViewMode.js";
+import {openNewProjectDialog, closeNewProjectDialog} from "./ui_managment/NewProjectDialog.js";
+import {initZeusMenu} from "./ui_managment/ZeusMenu.js";
 
 const DISPLAY_FPS = 60;
 
@@ -110,10 +112,22 @@ window.zpSplitCode = () => {
 
 window.zpSplitFile = (kind) => {
     closeToolbarSplits(null);
-    if (kind === "import") window.zpImportProject();
+    if (kind === "new") window.zpNewProject();
+    else if (kind === "import") window.zpImportProject();
     else if (kind === "export") window.zpExportProject();
     else if (kind === "folder") window.zpOpenProjects();
 };
+
+/* Tapping the dimmed backdrop closes the code modal. The panel owns the
+ * unsaved-changes guard, so route through it when it is mounted. */
+const codeBackdrop = document.getElementById("zp_code_backdrop");
+if (codeBackdrop) {
+    codeBackdrop.addEventListener("click", () => {
+        const close = window.zpRequestCloseCode;
+        if (typeof close === "function") close();
+        else window.zpCloseCode();
+    });
+}
 
 /* ===== Phone sidebar dropdown =====
  * Record and screenshot share one icon in the 40px wide icon bar. The menu
@@ -170,6 +184,25 @@ window.addEventListener("resize", () => {
     closeSideSplits(null);
 });
 
+/* Android hardware back: dismiss whatever is open before letting the activity
+ * exit, so a stray back press never closes the app on top of a menu or an
+ * unsaved editor. Returns true when the press was consumed. */
+window.zpHandleBack = () => {
+    if (window.zpCloseNewProject && window.zpCloseNewProject()) return true;
+    if (document.querySelector(".zp-split.open") || document.querySelector(".zp-side-split.open")) {
+        closeToolbarSplits(null);
+        closeSideSplits(null);
+        return true;
+    }
+    if (document.getElementById("zp-dialog-overlay")) return true;
+    if (document.body.classList.contains("zp-code-open")) {
+        const close = window.zpRequestCloseCode;
+        if (typeof close === "function") close();
+        return true;
+    }
+    return false;
+};
+
 /* After an import the new folder is selected right away instead of reloading
  * the whole page, so the imported project starts previewing immediately. */
 async function afterImport(result) {
@@ -184,6 +217,10 @@ async function afterImport(result) {
     }
     showToast(I18n.t("dialog.imported", "Project imported"), false);
 }
+
+/* Create a project from one of the official samples, then select it. */
+window.zpNewProject = () => openNewProjectDialog(afterImport);
+window.zpCloseNewProject = () => closeNewProjectDialog();
 
 /* Pick a .zip from the device storage (phones and plain browsers). */
 function pickLocalZip() {
@@ -282,10 +319,26 @@ window.zpExportProject = async () => {
         return;
     }
 
-    // A plain browser on a phone has no native save dialog, so the zip is
+    // A plain browser on a phone has no native save dialog, so the package is
     // streamed as a download. The APK saves it natively instead.
     if (!isDesktopShell() && !isAndroidApp()) {
-        window.location.href = "/api/download_project?projectUrl=" + encodeURIComponent(url);
+        // import/export syntax only works after zeus build, which a browser
+        // cannot run; refuse instead of handing out a package that will not
+        // install on the watch.
+        try {
+            const probeRes = await fetch("/api/export_project", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({projectUrl: url, probe: true}),
+            });
+            const probe = await probeRes.json();
+            if (probe && probe.needsBuild) {
+                await zpAlert(I18n.t("dialog.exportNeedsBuild",
+                    "This project uses import statements and must be built with zeus build. Export it from the desktop app."));
+                return;
+            }
+        } catch (e) {}
+        window.location.href = "/api/download_project?projectUrl=" + encodeURIComponent(url) + "&format=bin";
         return;
     }
 
@@ -302,8 +355,8 @@ window.zpExportProject = async () => {
             });
             const j = await r.json();
             if (j && j.ok && j.cachePath) {
-                showToast(I18n.t("dialog.exportChooseDir", "Choose a folder to save the zip"), false);
-                window.zpAndroid.exportFileToUser(j.cachePath, j.name || "project.zip", "export-" + Date.now());
+                showToast(I18n.t("dialog.exportChooseDir", "Choose a folder to save the package"), false);
+                window.zpAndroid.exportFileToUser(j.cachePath, j.name || "project.bin", "export-" + Date.now());
                 return;
             }
             if (loading) loading.style.display = "none";
@@ -326,11 +379,24 @@ window.zpExportProject = async () => {
         });
         const j = await r.json();
         if (j && j.ok) {
-            showToast(I18n.t("dialog.exported", "Project exported to") + " " + j.path);
+            const key = j.mode === "zeus" ? "dialog.exportedBuilt" : "dialog.exported";
+            const fallback = j.mode === "zeus"
+                ? "Built with zeus build and exported to"
+                : "Project exported to";
+            showToast(I18n.t(key, fallback) + " " + j.path);
         } else if (j && j.cancelled) {
             return;
         } else {
-            await zpAlert(I18n.t("dialog.exportFailed", "Export failed") + ": " + ((j && j.msg) || ""));
+            let detail = (j && j.msg) || "";
+            if (j && j.code === "zeus_missing") {
+                detail = I18n.t("dialog.exportNeedsBuild",
+                    "This project uses import statements and must be built with zeus build. Install it with: npm i -g @zeppos/zeus-cli");
+            } else if (j && j.code === "config_v1") {
+                detail = I18n.t("dialog.exportConfigV1",
+                    "This project uses the Zepp OS 1.0 device.targets config, which zeus build cannot compile. Upgrade to the v2/v3 targets config, or remove the import statements before exporting.");
+            }
+            if (j && j.log) detail += "\n\n" + String(j.log).slice(-1200);
+            await zpAlert(I18n.t("dialog.exportFailed", "Export failed") + ": " + detail);
         }
     } catch (e) {
         console.error("Export failed", e);
@@ -338,6 +404,17 @@ window.zpExportProject = async () => {
     } finally {
         if (loading) loading.style.display = "none";
     }
+};
+
+/* `zeus dev` streams the build to the official Zepp OS simulator over
+ * socket.io, which only that simulator speaks. This app runs the project
+ * itself, so the entry point reloads the selected project in place. */
+window.zpRunInSimulator = () => {
+    if (!ProjectPicker.getProject()) {
+        zpAlert(I18n.t("zeus.noProject", "请先选择一个项目"));
+        return;
+    }
+    ToolbarManager.doReload();
 };
 
 /* Drag & drop a project folder or .zip onto the window to import it. */
@@ -383,7 +460,7 @@ const setupDropImport = () => {
 
         if (!droppedPath) {
             await zpAlert(I18n.t("dialog.importFailed", "Import failed")
-                + ": " + (I18n.locale === "zh" ? "无法读取拖入文件的路径" : "Cannot read the dropped path"));
+                + ": " + I18n.t("error.dropNoPath", "Cannot read the dropped file path"));
             return;
         }
 
@@ -451,6 +528,7 @@ const start = async () => {
     const ctx = root.getContext("2d");
 
     try { initViewMode(); } catch (e) { bootWarn("view mode", e); }
+    try { initZeusMenu(); } catch (e) { bootWarn("zeus menu", e); }
     try { setupDropImport(); } catch (e) { bootWarn("drop import", e); }
 
     // The engine is created before anything async so the canvas gets its real
@@ -486,7 +564,12 @@ const start = async () => {
     if (player) {
         try {
             await withTimeout(ProjectPicker.setup(player), 8000, "project list");
-        } catch (e) { bootWarn("project list", e); }
+        } catch (e) {
+            bootWarn("project list", e);
+            // Replace the empty picker with a retry entry instead of leaving
+            // the user with a silently empty list.
+            try { ProjectPicker.showRetry(); } catch (err) { console.warn(err); }
+        }
         try { ToolbarManager.initProfileSelect(player); } catch (e) { bootWarn("profile select", e); }
     }
 
@@ -514,7 +597,7 @@ const start = async () => {
             await player.init();
         } catch (e) {
             bootFail("Project load", e);
-            showToast("项目加载失败: " + (e && (e.message || e)), true, 8000);
+            showToast(I18n.t("error.projectLoad", "Failed to load the project: ") + (e && (e.message || e)), true, 8000);
         }
     } else {
         console.warn("No project found in the projects folder");
@@ -524,7 +607,7 @@ const start = async () => {
     // Surface non-fatal boot problems once, so a phone without DevTools can
     // still tell us which step degraded.
     if (bootIssues.length && window.__zpReport) {
-        window.__zpReport("启动告警（界面仍可用）:\n" + bootIssues.join("\n"));
+        window.__zpReport(I18n.t("error.bootIssues", "Startup warnings (the UI still works):") + "\n" + bootIssues.join("\n"));
     }
 
     // Render config

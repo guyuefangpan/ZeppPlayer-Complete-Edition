@@ -72,8 +72,18 @@ export default class DeviceRuntimeCoreMock {
 
     HmLogger = class {
         static getLogger(name) {
+            const tag = "[" + name + "]";
+            const emit = (method) => (...args) => {
+                const target = console[method] || console.log;
+                target("hmLogger", tag, ...args);
+            };
+
             return {
-                log: (data) => console.log("hmLogger", "[" + name + "]", data)
+                log: emit("log"),
+                debug: emit("debug"),
+                info: emit("info"),
+                warn: emit("warn"),
+                error: emit("error"),
             }
         }
     }

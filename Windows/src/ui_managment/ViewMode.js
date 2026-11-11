@@ -11,6 +11,9 @@
  */
 
 const MOBILE_MAX_WIDTH = 900;
+/* Below this width the desktop three-column layout squeezes the code preview,
+ * so the panel turns into a modal there as well. */
+const CODE_MODAL_MAX_WIDTH = 1100;
 
 const FORCED = ["portrait", "landscape", "desktop"];
 
@@ -40,6 +43,12 @@ export function applyViewMode() {
     body.classList.toggle("zp-portrait", mode === "portrait");
     body.classList.toggle("zp-landscape", mode === "landscape");
     body.setAttribute("data-zp-view", mode);
+
+    // Narrow desktop windows use the phone-style code modal. Widening the
+    // window back must not leave the dimmed backdrop behind.
+    const narrowCode = mode === "desktop" && (window.innerWidth || 0) <= CODE_MODAL_MAX_WIDTH;
+    body.classList.toggle("zp-narrow-code", narrowCode);
+    if (mode === "desktop" && !narrowCode) body.classList.remove("zp-code-open");
 
     // Used by the CSS as a fallback for browsers without dvh support.
     const vh = window.innerHeight || 0;
