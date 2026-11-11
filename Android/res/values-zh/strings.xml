@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZeppPlayer</string>
+    <string name="exit_title">退出 ZeppPlayer？</string>
+    <string name="exit_message">模拟器将停止运行，未保存的修改会丢失。</string>
+    <string name="exit_ok">退出</string>
+    <string name="exit_cancel">取消</string>
+</resources>
