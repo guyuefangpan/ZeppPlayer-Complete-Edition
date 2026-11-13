@@ -882,6 +882,112 @@ const ZEUS_TYPE_LEVELS = {
 
 const ZEUS_SHAPES = ["r", "s", "b"];
 
+/* zeus keeps its device catalogue in ~/.zepp/.zeus_devices. `zeus create`
+ * offers this list when an API 1.0/2.0 project is created, so the dialog needs
+ * it to reproduce the official question.
+ *
+ * The target key is not the product name: getDeviceConf() groups the entries by
+ * product, takes the shortest platform code as the device's internal name and
+ * strips everything but letters ("Verona" -> "verona"). API 2.0 only offers the
+ * targets whose platforms all belong to devices limited to OS 2.0. */
+function zeusDevices() {
+    const file = path.join(os.homedir(), ".zepp", ".zeus_devices");
+    let list = [];
+    try {
+        const content = JSON.parse(fs.readFileSync(file, "utf8"));
+        list = Array.isArray(content.devices) ? content.devices : [];
+    } catch (e) {
+        return [];
+    }
+
+    const shapeMap = {square: "s", round: "r", bar: "b"};
+    const groups = new Map();
+    for (const dev of list) {
+        const name = String(dev.productName || "").trim();
+        if (!name || !dev.code) continue;
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(dev);
+    }
+
+    const targets = [];
+    const byKey = new Map();
+    for (const [name, entries] of groups) {
+        const inner = entries.reduce((acc, cur) => (cur.code.length < acc.length ? cur.code : acc), entries[0].code);
+        const key = String(inner).toLowerCase().replace(/[^a-z]/g, "");
+        if (!key) continue;
+        const info = {
+            key,
+            name,
+            shape: "r",
+            width: 0,
+            height: 0,
+            platforms: [],
+            apiMin: "1.0.0",
+            apiMax: "",
+        };
+        for (const dev of entries) {
+            const value = dev.value || {};
+            const os = value.os || {};
+            const shape = shapeMap[value.shape];
+            if (shape) info.shape = shape;
+            const size = String((value.screen && value.screen.size) || "").split("*");
+            if (size[0] && size[1]) {
+                info.width = Number(size[0]) || 0;
+                info.height = Number(size[1]) || 0;
+            }
+            info.platforms.push({ deviceSource: dev.deviceSource });
+            info.apiMin = os.apiLevelLimitMin || "1.0.0";
+            info.apiMax = os.apiLevel || os.apiLevelLimitMax || "";
+        }
+        /* The CLI stores the groups in an object keyed by this name, so two
+         * products that end up with the same key keep one row: the last one
+         * wins and the row stays where it first appeared. */
+        const prev = byKey.get(key);
+        if (prev) {
+            Object.assign(prev, info, { order: prev.order });
+        } else {
+            info.order = targets.length;
+            byKey.set(key, info);
+            targets.push(info);
+        }
+    }
+
+    /* The OS 2.0 list offered by an API 2.0 project is built with
+     * compareVersion(a, b) as "code(b) - code(a)", so the check reads
+     * min <= 2.0.0 <= max: every device that still supports OS 2.0. */
+    const cmp = (a, b) => {
+        const pa = String(a).split(".").map(Number);
+        const pb = String(b).split(".").map(Number);
+        for (let i = 0; i < 3; i++) {
+            const d = (pa[i] || 0) - (pb[i] || 0);
+            if (d) return d > 0 ? 1 : -1;
+        }
+        return 0;
+    };
+    const osV2 = new Set();
+    for (const t of targets) {
+        if (!t.platforms.length) continue;
+        if (cmp(t.apiMin || "1.0.0", "2.0.0") <= 0 && t.apiMax && cmp(t.apiMax, "2.0.0") >= 0) {
+            for (const p of t.platforms) if (p.deviceSource !== undefined) osV2.add(p.deviceSource);
+        }
+    }
+
+    const order = {r: 0, s: 1, b: 2};
+    return targets.map((t) => ({
+        key: t.key,
+        name: t.name,
+        shape: t.shape,
+        width: t.width,
+        height: t.height,
+        order: t.order,
+        osV2: t.platforms.length > 0 && t.platforms.every((p) => osV2.has(p.deviceSource)),
+    })).sort((a, b) => {
+        const oa = order[a.shape] === undefined ? 9 : order[a.shape];
+        const ob = order[b.shape] === undefined ? 9 : order[b.shape];
+        return oa - ob || a.name.localeCompare(b.name);
+    });
+}
+
 function zeusTemplateList(appType, apiLevel) {
     const type = ZEUS_TYPE_DIR[appType] ? appType : "app";
     const level = String(apiLevel || "3.0");
@@ -951,7 +1057,12 @@ function startZeusJob(opts) {
     }
 
     const launch = /\s/.test(zeus) ? `"${zeus}"` : zeus;
-    const wantsInput = typeof opts.stdin === "string";
+    /* A command that asks questions is answered by watching its output: each
+     * step is typed once the prompt it belongs to shows up. Guessing delays
+     * does not work because the device cache refresh before `create` can take
+     * anywhere from one to twenty seconds. */
+    const steps = Array.isArray(opts.stdinSteps) ? opts.stdinSteps.slice() : [];
+    const wantsInput = steps.length > 0;
     // shell:true concatenates argv without quoting on Windows, so an argument
     // with a space (a project name) would be split into two.
     const args = process.platform === "win32"
@@ -976,16 +1087,28 @@ function startZeusJob(opts) {
     }
 
     if (wantsInput) {
-        setTimeout(() => {
-            try {
-                job.child.stdin.write(opts.stdin);
-                // Closing the pipe right after the answer keeps a prompt that
-                // is never reached from blocking the process forever.
-                setTimeout(() => {
-                    try { job.child.stdin.end(); } catch (e) {}
-                }, 400);
-            } catch (e) {}
-        }, 1200);
+        let tail = "";
+        let closing = false;
+        const closeInput = () => {
+            if (closing) return;
+            closing = true;
+            try { job.child.stdin.end(); } catch (e) {}
+        };
+        const typeStep = (step) => {
+            if (!job.running || closing) return;
+            try { job.child.stdin.write(step.text); } catch (e) {}
+            /* stdin is only closed once every answer has been typed; ending it
+             * while inquirer still waits for one makes the next prompt throw
+             * ERR_USE_AFTER_CLOSE and aborts the command. */
+            if (!steps.length) setTimeout(closeInput, 3000);
+        };
+        job.child.stdout.on("data", (buf) => {
+            tail = (tail + buf.toString().replace(ANSI_RE, "")).slice(-4000);
+            while (steps.length && tail.indexOf(steps[0].expect) > -1) {
+                const step = steps.shift();
+                setTimeout(() => typeStep(step), step.delay || 300);
+            }
+        });
     }
 
     job.child.stdout.on("data", (buf) => pushZeusLog(job, buf.toString()));
@@ -1026,33 +1149,58 @@ function zeusCreateTemplateArg(appType, template) {
     return template;
 }
 
-/* `zeus create` still asks a question of its own when the Empty template is
- * used: whether the app has an app-side component (and, when it has one,
- * whether it also gets a settings component). A "yes" can be passed as a
- * flag, but the boolean option cannot express "no", so the negative answer is
- * written to stdin. Only one prompt can remain at that point, and inquirer
- * resolves a confirm prompt as soon as the key arrives.
- *
- * The platform checkbox that API 1.0/2.0 projects show is suppressed with an
- * empty `--buildTargets=`: an empty list keeps the template's own targets. */
+/* The questions that do have a flag are passed on the command line: the app
+ * type, the API level and the template. The platform question differs by API
+ * level: 3.0 and above asks for screen shapes and accepts `--shape`, while API
+ * 1.0/2.0 asks which devices to build for and has no flag at all. */
 function zeusCreateArgs(opts) {
     const args = [
         "create", opts.name,
         "--apptype=" + opts.appType,
         "--apilevel=" + opts.apiLevel,
         "--template=" + opts.template,
-        "--shape=" + opts.shapes.join(","),
-        "--buildTargets=",
     ];
+    if (opts.shapes && opts.shapes.length) {
+        args.push("--shape=" + opts.shapes.join(","));
+    }
     if (opts.withAppSide) args.push("--withappside=true");
     if (opts.withSettings) args.push("--withsettings=true");
     return args;
 }
 
+/* `zeus create` still asks up to two questions of its own when the Empty
+ * template is used: whether the app has an app-side component (and, when it
+ * has one, whether it also gets a settings component), plus which devices to
+ * build for in an API 1.0/2.0 project (no flag at all - yargs rejects unknown
+ * options, so that checkbox has to be driven with the keyboard). Answers are
+ * typed into stdin as soon as the prompt text appears on stdout. */
 function buildCreateAnswers(opts) {
-    if (opts.appType !== "app" || opts.template !== "Empty") return undefined;
-    if (opts.withAppSide && opts.withSettings) return undefined;
-    return "n";
+    if (opts.appType !== "app" || opts.template !== "Empty") return [];
+    const steps = [];
+    /* A "yes" can be passed as a flag, so only a negative answer is left to
+     * type - and only one of the two confirms can still be pending. */
+    if (!opts.withAppSide) {
+        // A confirm prompt resolves on the newline, not on the letter alone.
+        steps.push({expect: "app-side component", text: "n\r", delay: 300});
+    } else if (!opts.withSettings) {
+        steps.push({expect: "settings component", text: "n\r", delay: 300});
+    }
+    if (opts.deviceKeys) {
+        steps.push({expect: "Which platforms of this application", text: opts.deviceKeys, delay: 500});
+    }
+    return steps;
+}
+
+/* The checkbox opens on the first row with the first device already ticked,
+ * so rows are walked with the down arrow and every row whose state has to
+ * change is toggled with a space before the list is submitted. */
+function deviceCheckboxKeys(count, picks) {
+    let keys = "";
+    for (let i = 0; i < count; i++) {
+        if (i > 0) keys += "\u001b[B";
+        if ((picks.indexOf(i) > -1) !== (i === 0)) keys += " ";
+    }
+    return keys + "\r";
 }
 
 function startZeusCreate(body) {
@@ -1073,8 +1221,31 @@ function startZeusCreate(body) {
     const available = zeusTemplateList(appType, apiLevel);
     if (available.length && available.indexOf(template) < 0) template = available[0];
 
-    let shapes = Array.isArray(body.shapes) ? body.shapes.filter((s) => ZEUS_SHAPES.indexOf(s) > -1) : [];
-    if (!shapes.length) shapes = ["r"];
+    /* Mirror the official questions: only an Empty app project asks anything
+     * about platforms, and the question depends on the API level. */
+    const asksPlatform = appType === "app" && template === "Empty";
+
+    let shapes = [];
+    let deviceKeys = "";
+    if (asksPlatform && parseFloat(apiLevel) <= 2) {
+        /* The keystrokes follow the row order of the CLI list, which is the
+         * catalogue order (`order`), not the grouped display order. An API 2.0
+         * project only offers the devices that still support OS 2.0. */
+        const all = zeusDevices().slice().sort((a, b) => a.order - b.order);
+        const choices = apiLevel === "2.0" ? all.filter((d) => d.osV2) : all;
+        if (choices.length) {
+            const picked = Array.isArray(body.devices) ? body.devices : [];
+            const indices = [];
+            choices.forEach((d, i) => {
+                if (picked.indexOf(d.key) > -1) indices.push(i);
+            });
+            if (!indices.length) indices.push(0);
+            deviceKeys = deviceCheckboxKeys(choices.length, indices);
+        }
+    } else if (asksPlatform && parseFloat(apiLevel) > 2) {
+        shapes = Array.isArray(body.shapes) ? body.shapes.filter((s) => ZEUS_SHAPES.indexOf(s) > -1) : [];
+        if (!shapes.length) shapes = ["r"];
+    }
 
     const withAppSide = appType === "app" && !!body.withAppSide;
     const withSettings = withAppSide && !!body.withSettings;
@@ -1093,7 +1264,13 @@ function startZeusCreate(body) {
         action: "create",
         cwd: projectsDir,
         args: zeusCreateArgs(opts),
-        stdin: buildCreateAnswers({ appType, template, withAppSide, withSettings }),
+        stdinSteps: buildCreateAnswers({
+            appType,
+            template,
+            withAppSide,
+            withSettings,
+            deviceKeys,
+        }),
         timeout: 15 * 60 * 1000,
     });
     if (!started.ok) return started;
@@ -1462,6 +1639,7 @@ function handleApi(req, res, pathname) {
             login: zeusLoginState(),
             types: ZEUS_TYPE_LEVELS,
             shapes: ZEUS_SHAPES,
+            devices: zeusDevices(),
         });
     }
 

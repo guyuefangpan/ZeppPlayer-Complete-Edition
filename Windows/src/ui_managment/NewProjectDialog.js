@@ -53,12 +53,14 @@ let jobId = "";
 /* null while zeus is still being probed, {installed:false} when unavailable. */
 let zeus = null;
 let templates = [];
+let devices = [];
 
 const state = {
     appType: "app",
     apiLevel: "3.0",
     template: "",
     shapes: ["r"],
+    devices: [],
     withAppSide: false,
     withSettings: false,
     name: "",
@@ -454,6 +456,8 @@ function renderBody() {
                 },
             ]);
 
+            /* Same split as the official prompts: API 1.0/2.0 asks which
+             * devices to build for, 3.0 and above asks for screen shapes. */
             if (parseFloat(state.apiLevel) > 2) {
                 box.appendChild(label(t("newProject.shapes", "设备形状")));
                 toggleRow(box, SHAPES.map((shape) => ({
@@ -468,6 +472,8 @@ function renderBody() {
                         }
                     },
                 })));
+            } else {
+                renderDevices(box);
             }
         }
     }
@@ -479,6 +485,67 @@ function renderBody() {
             + (zeus && zeus.version ? " · zeus-cli " + zeus.version : "")
         : t("newProject.source", "模板来源：GitHub · zepp-health/zeppos-samples");
     box.appendChild(source);
+}
+
+/* Device picker for API 1.0/2.0 projects: the official CLI lists every cached
+ * device and builds one target per selected one. */
+function devicesForLevel() {
+    /* An API 2.0 project only lists the devices that still support OS 2.0,
+     * exactly like the CLI does; fall back instead of showing nothing. */
+    if (parseFloat(state.apiLevel) < 2) return devices;
+    const v2 = devices.filter((d) => d.osV2);
+    return v2.length ? v2 : devices;
+}
+
+function renderDevices(box) {
+    box.appendChild(label(t("newProject.devices", "适配设备")));
+
+    const available = devicesForLevel();
+    if (!available.length) {
+        const empty = document.createElement("div");
+        empty.className = "zp-np__source";
+        empty.textContent = t("newProject.noDevices", "没有设备缓存，请先在 zeus 菜单里更新设备缓存");
+        box.appendChild(empty);
+        return;
+    }
+
+    const keys = available.map((d) => d.key);
+    state.devices = state.devices.filter((k) => keys.indexOf(k) > -1);
+    if (!state.devices.length) state.devices = [keys[0]];
+
+    const list = document.createElement("div");
+    list.className = "zp-np__devices";
+    for (const dev of available) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "zp-np__device" + (state.devices.indexOf(dev.key) > -1 ? " active" : "");
+        row.innerHTML = `<span class="material-symbols-outlined">watch</span>
+            <span class="zp-np__deviceName"></span>
+            <span class="zp-np__deviceMeta"></span>`;
+        row.querySelector(".zp-np__deviceName").textContent = dev.name;
+        const meta = [];
+        if (dev.width && dev.height) meta.push(dev.width + "×" + dev.height);
+        meta.push(t("newProject.shape." + dev.shape, dev.shape));
+        row.querySelector(".zp-np__deviceMeta").textContent = meta.join(" · ");
+        row.onclick = () => {
+            const at = state.devices.indexOf(dev.key);
+            if (at > -1) {
+                if (state.devices.length > 1) {
+                    state.devices.splice(at, 1);
+                    row.classList.remove("active");
+                }
+            } else {
+                state.devices.push(dev.key);
+                row.classList.add("active");
+            }
+        };
+        list.appendChild(row);
+    }
+    box.appendChild(list);
+}
+
+function defaultDevice() {
+    state.devices = [];
 }
 
 async function pickType(id) {
@@ -535,6 +602,7 @@ async function handleCreate() {
             apiLevel: state.apiLevel,
             template: state.template,
             shapes: state.shapes,
+            devices: state.devices,
             withAppSide: state.withAppSide,
             withSettings: state.withSettings,
         });
@@ -634,11 +702,13 @@ export function openNewProjectDialog(onDone) {
     onDoneCb = onDone || null;
     zeus = null;
     templates = [];
+    devices = [];
     jobId = "";
     state.appType = "app";
     state.apiLevel = "3.0";
     state.template = "";
     state.shapes = ["r"];
+    state.devices = [];
     state.withAppSide = false;
     state.withSettings = false;
     state.name = "";
@@ -693,6 +763,8 @@ export function openNewProjectDialog(onDone) {
 
     zeusInfo().then((info) => {
         zeus = info && info.installed ? info : {installed: false};
+        devices = info && Array.isArray(info.devices) ? info.devices : [];
+        defaultDevice();
         const list = levels();
         if (list.indexOf(state.apiLevel) < 0) state.apiLevel = list[list.length - 1] || "3.0";
         return loadTemplates();

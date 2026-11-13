@@ -164,6 +164,60 @@
     font-weight: 600;
 }
 
+.zp-np__devices {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 176px;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 10px;
+}
+
+.zp-np__device {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.zp-np__device:hover {
+    background: rgba(255, 255, 255, .07);
+}
+
+.zp-np__device.active {
+    border-color: var(--accent, #ff7043);
+    background: rgba(255, 112, 67, .14);
+}
+
+.zp-np__device > .material-symbols-outlined {
+    font-size: 18px;
+    color: var(--accent, #ff7043);
+}
+
+.zp-np__deviceName {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.zp-np__deviceMeta {
+    opacity: .55;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
 .zp-np__source {
     margin-top: 14px;
     font-size: 11px;
