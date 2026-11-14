@@ -22,7 +22,7 @@ const SYS_MODULES = {
     "@zos/utils": `{ log: (typeof Logger !== "undefined" && Logger) || (typeof DeviceRuntimeCore !== "undefined" && DeviceRuntimeCore.HmLogger) || { getLogger: function () { return console; } }, buffer: (typeof Buffer !== "undefined" ? Buffer : null), px: __zp_px }`,
     "@zos/app": `__zp_scene`,
     "@zos/device": `{ getDeviceInfo: function () { return (typeof hmSetting !== "undefined" && hmSetting.getDeviceInfo) ? hmSetting.getDeviceInfo() : { width: 480, height: 480, screenShape: 1, deviceName: "", keyNumber: 0 }; } }`,
-    "@zos/router": `(typeof hmApp !== "undefined" ? hmApp : {})`,
+    "@zos/router": `__zp_router`,
     "@zos/display": `(typeof hmSetting !== "undefined" ? hmSetting : {})`,
     "@zos/settings": `(typeof hmSetting !== "undefined" ? hmSetting : {})`,
     "@zos/fs": `(typeof hmFS !== "undefined" ? hmFS : {})`,
@@ -30,7 +30,8 @@ const SYS_MODULES = {
     "@zos/sensor": `(typeof hmSensor !== "undefined" ? hmSensor : {})`,
     "@zos/ble": `(typeof hmBle !== "undefined" ? hmBle : {})`,
     "@zos/interaction": `(typeof hmUI !== "undefined" ? hmUI : {})`,
-    "@zos/storage": `{ localStorage: (typeof localStorage !== "undefined" ? localStorage : null) }`,
+    "@zos/page": `__zp_page`,
+    "@zos/storage": `{ localStorage: __zp_local_storage, LocalStorage: __zp_LocalStorage }`,
     "@zos/i18n": `{ getText: __zp_gettext, gettext: __zp_gettext }`,
     "@zos/notification": `{}`,
     "@zos/app-service": `{}`,
@@ -43,6 +44,7 @@ const SYS_MODULES = {
     /* ZeppOS apps built with @zeppos/zml. */
     "@zeppos/zml/base-side": `{ BaseSideService: __zp_base_side, BaseSideService_: __zp_base_side }`,
     "@zeppos/zml/base-page": `{ BasePage: __zp_base_page, BasePageService: __zp_base_page }`,
+    "@zeppos/zml/base-app": `{ BaseApp: __zp_base_app, default: __zp_base_app }`,
     "@zeppos/zml/base-service": `{ BaseSideService: __zp_base_side }`,
     "@zeppos/zml": `{ BaseSideService: __zp_base_side, BasePage: __zp_base_page }`,
 
@@ -353,24 +355,133 @@ const __zp_scene = {
     getAppInfo: function () { return {appId: 0, appName: ""}; },
 };
 
+/* ------------------------- @zos/storage --------------------------------
+ * The device exposes a LocalStorage constructor plus a ready-made
+ * localStorage instance. Both share one store per project, mirroring the
+ * per-app sandbox on a real watch. */
+const __zp_project_scope = (typeof __zp_project_url === "string" ? __zp_project_url : "")
+    .split("/").filter(function (__zp_part) { return !!__zp_part; })[1] || "";
+
+function __zp_storage_key(__zp_k) {
+    return "__zp_ls:" + __zp_project_scope + ":" + String(__zp_k);
+}
+
+function __zp_LocalStorage() {
+    this.getItem = function (__zp_k) {
+        try { return window.localStorage.getItem(__zp_storage_key(__zp_k)); } catch (e) { return null; }
+    };
+    this.setItem = function (__zp_k, __zp_v) {
+        try {
+            window.localStorage.setItem(__zp_storage_key(__zp_k), __zp_v === undefined || __zp_v === null ? "" : String(__zp_v));
+        } catch (e) {}
+    };
+    this.removeItem = function (__zp_k) {
+        try { window.localStorage.removeItem(__zp_storage_key(__zp_k)); } catch (e) {}
+    };
+    this.clear = function () {
+        try {
+            const __zp_store = window.localStorage;
+            const __zp_prefix = "__zp_ls:" + __zp_project_scope + ":";
+            const __zp_keys = [];
+            for (let __zp_i = 0; __zp_i < __zp_store.length; __zp_i++) {
+                const __zp_k = __zp_store.key(__zp_i);
+                if (__zp_k && __zp_k.indexOf(__zp_prefix) === 0) __zp_keys.push(__zp_k);
+            }
+            for (const __zp_k of __zp_keys) __zp_store.removeItem(__zp_k);
+        } catch (e) {}
+    };
+    this.getAllKeys = function () {
+        const __zp_out = [];
+        try {
+            const __zp_store = window.localStorage;
+            const __zp_prefix = "__zp_ls:" + __zp_project_scope + ":";
+            for (let __zp_i = 0; __zp_i < __zp_store.length; __zp_i++) {
+                const __zp_k = __zp_store.key(__zp_i);
+                if (__zp_k && __zp_k.indexOf(__zp_prefix) === 0) __zp_out.push(__zp_k.substring(__zp_prefix.length));
+            }
+        } catch (e) {}
+        return __zp_out;
+    };
+}
+
+const __zp_local_storage = new __zp_LocalStorage();
+
+/* --------------------------- @zos/router ------------------------------- */
+const __zp_router = {
+    push: function (__zp_conf) {
+        try {
+            if (typeof hmApp !== "undefined" && hmApp.gotoPage) {
+                hmApp.gotoPage({url: (__zp_conf || {}).url, param: (__zp_conf || {}).param});
+            }
+        } catch (e) {}
+    },
+    replace: function (__zp_conf) { __zp_router.push(__zp_conf); },
+    back: function () { try { if (typeof hmApp !== "undefined" && hmApp.goBack) hmApp.goBack(); } catch (e) {} },
+    home: function () { try { if (typeof hmApp !== "undefined" && hmApp.gotoHome) hmApp.gotoHome(); } catch (e) {} },
+    relaunch: function () { try { if (typeof hmApp !== "undefined" && hmApp.reloadPage) hmApp.reloadPage({url: ""}); } catch (e) {} },
+    getPages: function () { return []; },
+};
+
+/* ---------------------------- @zos/page --------------------------------
+ * Page-level switches have no visual effect inside the simulator, but the
+ * calls must exist so pages importing them do not crash. */
+const __zp_page = {
+    setScrollLock: function () {},
+    getScrollLock: function () { return false; },
+    setPageBrightTime: function () {},
+    setScreenKeep: function () {},
+    pauseDropWristScreenOff: function () {},
+    resetDropWristScreenOff: function () {},
+    setStatusBarVisible: function () {},
+    setNavigationBarVisible: function () {},
+};
+
+/* --------------------------- @zeppos/zml/base-app ------------------------ */
+function __zp_base_app(__zp_cfg) {
+    return __zp_cfg || {};
+}
+
+
 /* ---------------------------- ZML (zml.js) compatibility ------------------
  * ZeppOS apps built with @zeppos/zml talk JSON envelopes over peerSocket.
  * The real library ships a binary protocol for Bluetooth; inside the
  * simulator both sides share this lightweight, wire-compatible-with-itself
  * version so requests/calls still work end to end. */
+/* peerSocket delivers either a string, a typed array or a buffer object with a
+ * utf-8 aware toString(). Plain Uint8Array#toString() joins byte values with
+ * commas, which used to break JSON parsing. */
+function __zp_zmlDecode(__zp_raw) {
+    if (__zp_raw === null || __zp_raw === undefined) return "";
+    if (typeof __zp_raw === "string") return __zp_raw;
+    if (typeof __zp_raw === "object") {
+        if (__zp_raw.data !== undefined && __zp_raw.data !== __zp_raw) {
+            return __zp_zmlDecode(__zp_raw.data);
+        }
+        try {
+            const __zp_isBuffer = (typeof ArrayBuffer !== "undefined")
+                && (__zp_raw instanceof ArrayBuffer
+                    || (typeof ArrayBuffer.isView === "function" && ArrayBuffer.isView(__zp_raw)));
+            if (__zp_isBuffer && typeof TextDecoder !== "undefined") {
+                const __zp_view = (__zp_raw instanceof ArrayBuffer)
+                    ? new Uint8Array(__zp_raw)
+                    : new Uint8Array(__zp_raw.buffer, __zp_raw.byteOffset, __zp_raw.byteLength);
+                return new TextDecoder().decode(__zp_view);
+            }
+        } catch (e) {}
+        try {
+            if (typeof __zp_raw.toString === "function") {
+                const __zp_value = __zp_raw.toString("utf-8");
+                if (typeof __zp_value === "string") return __zp_value;
+            }
+        } catch (e) {}
+    }
+    try { return String(__zp_raw); } catch (e) { return ""; }
+}
+
 function __zp_zmlListen(__zp_cb) {
     const __zp_fn = function (__zp_raw) {
-        let __zp_text = __zp_raw;
-        if (__zp_text && typeof __zp_text === "object" && !(typeof Uint8Array !== "undefined" && __zp_text instanceof Uint8Array)) {
-            if (__zp_text.data !== undefined) __zp_text = __zp_text.data;
-        }
-        if (typeof __zp_text !== "string") {
-            try {
-                __zp_text = (typeof __zp_text.toString === "function")
-                    ? __zp_text.toString("utf-8")
-                    : String(__zp_text);
-            } catch (e) { return; }
-        }
+        const __zp_text = __zp_zmlDecode(__zp_raw);
+        if (!__zp_text) return;
         let __zp_msg = null;
         try { __zp_msg = JSON.parse(__zp_text); } catch (e) { return; }
         if (!__zp_msg || typeof __zp_msg !== "object" || !__zp_msg.__zp_zml) return;
@@ -420,7 +531,7 @@ function __zp_base_side(__zp_opts) {
                 }
                 if (__zp_msg.type === "request") {
                     const __zp_req = Object.assign({}, __zp_msg.payload || {}, {
-                        method: __zp_msg.method,
+                        method: __zp_msg.method || (__zp_msg.payload && __zp_msg.payload.method),
                         params: (__zp_msg.payload && __zp_msg.payload.params) || __zp_msg.params,
                     });
                     try {
@@ -457,13 +568,18 @@ function __zp_base_side(__zp_opts) {
             if (typeof __zp_opts.onDestroy === "function") return __zp_opts.onDestroy();
         },
         call: function (__zp_payload, __zp_method) {
-            __zp_zmlSend({type: "call", method: __zp_method, payload: __zp_payload});
+            __zp_zmlSend({type: "call", method: __zp_method || (__zp_payload && __zp_payload.method), payload: __zp_payload});
         },
         request: function (__zp_payload, __zp_method) {
             return new Promise(function (__zp_resolve, __zp_reject) {
                 const __zp_id = ++__zp_seq;
                 __zp_pending[__zp_id] = {resolve: __zp_resolve, reject: __zp_reject};
-                __zp_zmlSend({type: "request", id: __zp_id, method: __zp_method, payload: __zp_payload});
+                __zp_zmlSend({
+                    type: "request",
+                    id: __zp_id,
+                    method: __zp_method || (__zp_payload && __zp_payload.method),
+                    payload: __zp_payload,
+                });
             });
         },
     });
@@ -483,13 +599,18 @@ function __zp_base_page(__zp_cfg) {
     });
     return Object.assign({}, __zp_cfg, {
         call: function (__zp_payload, __zp_method) {
-            __zp_zmlSend({type: "call", method: __zp_method, payload: __zp_payload});
+            __zp_zmlSend({type: "call", method: __zp_method || (__zp_payload && __zp_payload.method), payload: __zp_payload});
         },
         request: function (__zp_payload, __zp_callback, __zp_method) {
             const __zp_promise = new Promise(function (__zp_resolve, __zp_reject) {
                 const __zp_id = ++__zp_seq;
                 __zp_pending[__zp_id] = {resolve: __zp_resolve, reject: __zp_reject};
-                __zp_zmlSend({type: "request", id: __zp_id, method: __zp_method, payload: __zp_payload});
+                __zp_zmlSend({
+                    type: "request",
+                    id: __zp_id,
+                    method: __zp_method || (__zp_payload && __zp_payload.method),
+                    payload: __zp_payload,
+                });
             });
             if (typeof __zp_callback === "function") {
                 __zp_promise.then(function (__zp_res) { __zp_callback(null, __zp_res); },
@@ -635,7 +756,12 @@ export async function bundleModule(entryPath, options) {
             + "\n};")
         .join("\n\n");
 
-    return HEADER.replace("__ZP_SYS_CASES__", buildSystemCases())
+    /* The project root is used by @zos/storage to namespace its keys. */
+    const projectMatch = entryPath.match(/^\/projects\/([^/]+)/);
+    const projectUrl = projectMatch ? "/projects/" + projectMatch[1] : "";
+
+    return "const __zp_project_url = " + quote(projectUrl) + ";\n"
+        + HEADER.replace("__ZP_SYS_CASES__", buildSystemCases())
         + "\n" + defs
         + "\n\n__zp_require(" + quote(entryPath) + ");\n";
 }

@@ -7,27 +7,32 @@
 export class MessagingMock {
     constructor(runtime) {
         this.runtime = runtime;
-        this._listeners = [];
+
+        /* ZeppOS exposes `messaging.peerSocket.addListener("message", cb)`.
+         * The list lives on the socket itself; keeping it in a local variable
+         * avoids `this` binding mistakes between the mock and the socket. */
+        const messageListeners = [];
 
         const peerSocket = {
-            _listeners: [],
+            _listeners: messageListeners,
             addListener(event, cb) {
                 if (event !== "message") return;
-                if (!this._listeners.includes(cb)) this._listeners.push(cb);
+                if (!messageListeners.includes(cb)) messageListeners.push(cb);
             },
             removeListener(event, cb) {
                 if (event !== "message") return;
-                this._listeners = this._listeners.filter(l => l !== cb);
+                const index = messageListeners.indexOf(cb);
+                if (index !== -1) messageListeners.splice(index, 1);
             },
             send: (data) => this.send(data),
             __receive: (bytes) => {
-                for (const cb of this._listeners.slice()) {
+                for (const cb of messageListeners.slice()) {
                     try { cb({ data: bytes }); } catch (e) {
                         this.runtime.player.onConsole("error", ["peerSocket listener error", e]);
                     }
                 }
-                if (typeof this.onmessage === "function") {
-                    try { this.onmessage({ data: bytes }); } catch (e) {}
+                if (typeof peerSocket.onmessage === "function") {
+                    try { peerSocket.onmessage({ data: bytes }); } catch (e) {}
                 }
             }
         };

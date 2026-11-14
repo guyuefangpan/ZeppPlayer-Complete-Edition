@@ -38,6 +38,7 @@ import {
 import {ScrollList} from "./ScrollList";
 import {TextWidget} from "./widget/TextWidget";
 import {PolylineWidget} from "./widget/PolylineWidget";
+import {QrcodeWidget} from "./widget/QrcodeWidget";
 
 export default class HuamiUIMock {
     _idCounter = 0;
@@ -73,7 +74,8 @@ export default class HuamiUIMock {
         HISTOGRAM: HistogramWidget,
         SCROLL_LIST: ScrollList,
         RADIO_GROUP: RadioGroupWidget,
-        STATE_BUTTON: StateButtonWidget
+        STATE_BUTTON: StateButtonWidget,
+        QRCODE: QrcodeWidget
     }
 
     constructor(runtime) {

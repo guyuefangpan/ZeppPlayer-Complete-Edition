@@ -1413,8 +1413,77 @@ function listDrives() {
     return drives;
 }
 
+/* App-side fetch proxy. ZeppOS companion services are not subject to the
+ * browser's CORS rules, so requests from the app-side runtime go through the
+ * main process instead of the page's window.fetch. */
+function proxyForward(target, options, redirectsLeft, resolve, reject) {
+    let parsed;
+    try { parsed = new URL(target); } catch (e) { return reject(new Error("Invalid URL: " + target)); }
+    const lib = parsed.protocol === "https:" ? require("https") : require("http");
+    const headers = Object.assign({}, options.headers || {});
+    for (const key of ["host", "origin", "referer", "content-length", "connection", "accept-encoding"]) {
+        delete headers[key];
+    }
+    const request = lib.request(parsed, { method: options.method || "GET", headers }, (upstream) => {
+        const status = upstream.statusCode || 0;
+        if (status >= 300 && status < 400 && upstream.headers.location && redirectsLeft > 0) {
+            upstream.resume();
+            const next = new URL(upstream.headers.location, parsed).toString();
+            return proxyForward(next, options, redirectsLeft - 1, resolve, reject);
+        }
+        const chunks = [];
+        upstream.on("data", (c) => chunks.push(c));
+        upstream.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            const type = String(upstream.headers["content-type"] || "");
+            const textual = !type || /json|text|javascript|xml|x-www-form-urlencoded|charset/i.test(type);
+            resolve({
+                url: target,
+                status,
+                statusText: upstream.statusMessage || "",
+                headers: upstream.headers,
+                body: textual ? buffer.toString("utf8") : null,
+                base64: textual ? null : buffer.toString("base64"),
+                text: textual,
+            });
+        });
+    });
+    request.setTimeout(30000, () => request.destroy(new Error("Proxy request timed out")));
+    request.on("error", reject);
+    if (options.body !== undefined && options.body !== null) request.write(options.body);
+    request.end();
+}
+
+function handleProxy(req, res) {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+        let payload = {};
+        try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch (e) {}
+        const url = String(payload.url || "");
+        if (!/^https?:\/\//i.test(url)) {
+            return sendJson(res, { ok: false, msg: "Unsupported URL: " + url }, 400);
+        }
+        const options = {
+            method: payload.method || "GET",
+            headers: payload.headers || {},
+            body: payload.body,
+        };
+        proxyForward(url, options, 3, (data) => {
+            sendJson(res, Object.assign({ ok: true }, data));
+        }, (err) => {
+            sendJson(res, { ok: false, msg: String((err && err.message) || err) }, 502);
+        });
+    });
+}
+
 function handleApi(req, res, pathname) {
     const q = url.parse(req.url, true).query;
+
+    if (pathname === "/api/proxy") {
+        handleProxy(req, res);
+        return;
+    }
 
     if (pathname === "/api/list_projects") {
         const projectsDir = getProjectsDir();

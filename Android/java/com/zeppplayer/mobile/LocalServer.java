@@ -9,9 +9,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URL;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -389,6 +391,19 @@ public final class LocalServer {
     private void handleApi(String method, String path, Map<String, String> params,
                            Map<String, String> headers, InputStream in, long length, OutputStream out)
             throws IOException {
+
+        if (path.equals("/api/proxy")) {
+            if (!"POST".equals(method)) {
+                sendText(out, 405, "text/plain", "Method not allowed");
+                return;
+            }
+            if (length <= 0 || length > MAX_JSON_BODY) {
+                sendJson(out, 400, "{\"ok\":false,\"msg\":\"请求体为空\"}");
+                return;
+            }
+            proxyRequest(Json.parseObject(new String(readBody(in, length), "UTF-8")), out);
+            return;
+        }
 
         if (path.equals("/api/list_projects")) {
             boolean preferBuild = "true".equals(params.get("preferBuildDir"));
@@ -911,6 +926,116 @@ public final class LocalServer {
 
     private static String encodeURIComponent(String value) throws IOException {
         return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
+    }
+
+    /* Same-origin HTTP proxy for the app-side (companion) runtime. A real
+     * watch companion talks to the network without browser CORS rules, so the
+     * WebView forwards its requests here. Mirrors /api/proxy of
+     * electron_main.js. */
+    private void proxyRequest(Map<String, String> body, OutputStream out) throws IOException {
+        String target = body.get("url");
+        if (target == null || !(target.startsWith("http://") || target.startsWith("https://"))) {
+            sendJson(out, 400, "{\"ok\":false,\"msg\":\"无效的 URL\"}");
+            return;
+        }
+
+        String method = body.get("method");
+        if (method == null || method.length() == 0) method = "GET";
+        method = method.toUpperCase(Locale.ROOT);
+
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(target).openConnection();
+            try {
+                conn.setRequestMethod(method);
+            } catch (java.net.ProtocolException e) {
+                sendJson(out, 400, Json.obj("ok", "false", "msg", Json.str("不支持的请求方法: " + method)));
+                return;
+            }
+            conn.setConnectTimeout(20000);
+            conn.setReadTimeout(30000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("Accept-Encoding", "identity");
+
+            String headersJson = body.get("headersJson");
+            if (headersJson != null) {
+                for (Map.Entry<String, String> entry : Json.parseObject(headersJson).entrySet()) {
+                    String key = entry.getKey();
+                    String lower = key.toLowerCase(Locale.ROOT);
+                    if (lower.equals("host") || lower.equals("content-length")
+                            || lower.equals("connection") || lower.equals("accept-encoding")) {
+                        continue;
+                    }
+                    conn.setRequestProperty(key, entry.getValue());
+                }
+            }
+
+            String requestBody = body.get("body");
+            if (requestBody != null && !method.equals("GET") && !method.equals("HEAD")) {
+                byte[] payload = requestBody.getBytes("UTF-8");
+                conn.setDoOutput(true);
+                OutputStream os = conn.getOutputStream();
+                try {
+                    os.write(payload);
+                } finally {
+                    os.close();
+                }
+            }
+
+            int status = conn.getResponseCode();
+            InputStream stream = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            if (stream != null) {
+                try {
+                    byte[] chunk = new byte[8192];
+                    int n;
+                    while ((n = stream.read(chunk)) > 0) buffer.write(chunk, 0, n);
+                } finally {
+                    stream.close();
+                }
+            }
+
+            byte[] data = buffer.toByteArray();
+            String contentType = conn.getContentType();
+            if (contentType == null) contentType = "";
+            String lowerType = contentType.toLowerCase(Locale.ROOT);
+            boolean isText = lowerType.startsWith("text/")
+                    || lowerType.contains("json") || lowerType.contains("xml")
+                    || lowerType.contains("javascript") || lowerType.contains("x-www-form-urlencoded");
+
+            String statusText = conn.getResponseMessage();
+            StringBuilder json = new StringBuilder();
+            json.append("{\"ok\":true,\"url\":").append(Json.str(target))
+                    .append(",\"status\":").append(status)
+                    .append(",\"statusText\":").append(Json.str(statusText == null ? "" : statusText))
+                    .append(",\"headers\":{}");
+            if (isText) {
+                json.append(",\"body\":").append(Json.str(new String(data, "UTF-8"))).append(",\"base64\":\"\"}");
+            } else {
+                json.append(",\"body\":\"\",\"base64\":").append(Json.str(encodeBase64(data))).append('}');
+            }
+            sendJson(out, json.toString());
+        } catch (Exception e) {
+            sendJson(out, 502, Json.obj("ok", "false", "msg", Json.str(String.valueOf(e.getMessage()))));
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static String encodeBase64(byte[] data) {
+        if (data == null || data.length == 0) return "";
+        final char[] table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
+        StringBuilder sb = new StringBuilder((data.length + 2) / 3 * 4);
+        for (int i = 0; i < data.length; i += 3) {
+            int b0 = data[i] & 0xff;
+            int b1 = i + 1 < data.length ? data[i + 1] & 0xff : 0;
+            int b2 = i + 2 < data.length ? data[i + 2] & 0xff : 0;
+            sb.append(table[b0 >> 2]);
+            sb.append(table[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            sb.append(i + 1 < data.length ? table[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=');
+            sb.append(i + 2 < data.length ? table[b2 & 0x3f] : '=');
+        }
+        return sb.toString();
     }
 
     private static byte[] decodeBase64(String input) {

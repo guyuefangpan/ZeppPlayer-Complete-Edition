@@ -1,6 +1,6 @@
 {
   "name": "zeppplayer",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Unofficial ZeppOS emulator",
   "main": "electron_main.js",
   "scripts": {
@@ -15,12 +15,14 @@
   "build": {
     "appId": "com.zeppplayer.desktop",
     "productName": "ZeppPlayer",
+    "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release"
     },
     "files": [
       "app/**/*",
       "projects/**/*",
+      "!projects/MeowBili-For-Zepp-OS/**",
       "electron_main.js",
       "preload.js",
       "package.json",
@@ -81,6 +83,7 @@
     "normalize-path": "^3.0.0",
     "path-normalize": "^6.0.12",
     "preact": "^10.19.3",
+    "qrcode-generator": "^2.0.4",
     "tga": "^1.0.7",
     "uuid": "^9.0.1",
     "yargs": "^17.7.2"

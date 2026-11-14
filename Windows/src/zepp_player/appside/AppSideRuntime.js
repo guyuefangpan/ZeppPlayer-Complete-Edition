@@ -152,34 +152,102 @@ export function createAppSideSandbox(host) {
     });
 
     // fetch -------------------------------------------------------------
-    env.fetch = (input, options) => {
-        const request = typeof input === "string" ? Object.assign({}, options || {}, { url: input }) : (input || {});
-        const url = request.url;
+    /* On a real watch the companion service talks to the network directly,
+     * without the browser's CORS rules. Desktop and Android expose the same
+     * origin-local /api/proxy endpoint; when it is missing (plain browser
+     * build) the runtime falls back to window.fetch. */
+    const decodeBase64 = (value) => {
+        try {
+            const binary = atob(value || "");
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return bytes.buffer;
+        } catch (e) {
+            return new ArrayBuffer(0);
+        }
+    };
+
+    /* ZeppOS defaults `response.body` to a parsed object for JSON payloads and
+     * keeps plain text as a string. Text is therefore parsed opportunistically
+     * unless the caller explicitly asked for another responseType. */
+    const shapeBody = (request, text) => {
+        const type = request.responseType;
+        if (type === "text" || type === "arraybuffer") return text;
+        const trimmed = String(text).trim();
+        if (!trimmed || (trimmed.charAt(0) !== "{" && trimmed.charAt(0) !== "[")) return text;
+        try { return JSON.parse(trimmed); } catch (e) { return text; }
+    };
+
+    const describeProxyResponse = (request, data) => {
+        let body = data.body;
+        if (data.base64) body = data.base64;
+        else if (typeof body === "string") body = shapeBody(request, body);
+        const asText = () => (typeof body === "string" ? body : JSON.stringify(body));
+        return {
+            url: data.url,
+            status: data.status,
+            statusText: data.statusText || "",
+            headers: data.headers || {},
+            body,
+            redirected: false,
+            type: "basic",
+            ok: data.status >= 200 && data.status < 300,
+            text: async () => asText(),
+            json: async () => JSON.parse(asText()),
+            arrayBuffer: async () => decodeBase64(data.base64 || ""),
+            clone: function () { return describeProxyResponse(request, data); },
+        };
+    };
+
+    const directFetch = (request) => {
         const init = Object.assign({}, request);
         delete init.url;
-        return Promise.resolve(window.fetch(url, init)).then(async (response) => {
+        delete init.responseType;
+        return Promise.resolve(window.fetch(request.url, init)).then(async (response) => {
             const headers = {};
             try { response.headers.forEach((v, k) => { headers[k] = v; }); } catch (e) {}
-            const bodyText = async () => {
-                try { return await response.text(); } catch (e) { return ""; }
-            };
+            const text = await response.text();
+            const body = shapeBody(request, text);
             return {
-                url: response.url || url,
+                url: response.url || request.url,
                 status: response.status,
                 statusText: response.statusText,
                 headers,
-                body: undefined,
+                body,
                 redirected: !!response.redirected,
                 type: response.type || "basic",
                 ok: response.status >= 200 && response.status < 300,
-                text: bodyText,
-                json: async () => JSON.parse(await bodyText()),
+                text: async () => text,
+                json: async () => JSON.parse(text),
                 arrayBuffer: async () => {
                     try { return await response.arrayBuffer(); } catch (e) { return new ArrayBuffer(0); }
                 },
                 clone: () => response.clone ? response.clone() : response,
             };
         });
+    };
+
+    env.fetch = (input, options) => {
+        const request = typeof input === "string" ? Object.assign({}, options || {}, { url: input }) : (input || {});
+        if (!request.url) return Promise.reject(new Error("fetch: missing url"));
+        const payload = {
+            url: request.url,
+            method: request.method || "GET",
+            headers: request.headers || {},
+            // Flat string form, for servers that parse JSON without nesting.
+            headersJson: JSON.stringify(request.headers || {}),
+            body: (request.body && typeof request.body === "object") ? JSON.stringify(request.body) : request.body,
+        };
+        return window.fetch("/api/proxy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }).then(async (response) => {
+            if (!response.ok) throw new Error("proxy status " + response.status);
+            const data = await response.json();
+            if (!data || !data.ok) throw new Error((data && data.msg) || "proxy request failed");
+            return describeProxyResponse(request, data);
+        }).catch(() => directFetch(request));
     };
 
     // settings ----------------------------------------------------------
@@ -306,13 +374,32 @@ export function createAppSideSandbox(host) {
     env.btoa = (s) => ZBuffer.from(String(s), "latin1").toString("base64");
     env.atob = (s) => ZBuffer.fromBase64(String(s)).toString("latin1");
     env.transferFile = undefined;
-    env.image = {
-        convert: () => Promise.reject(new Error("Image conversion is unavailable in the simulator"))
-    };
+
+    /* The companion can download files into the watch storage and convert
+     * images there. There is no phone<->watch file channel in the simulator,
+     * so downloads are kept in memory and conversions are pass-through
+     * copies. This keeps apps that fetch images working instead of throwing. */
+    const downloadedFiles = new Map();
     env.network = {
         downloader: {
-            downloadFile: () => Promise.reject(new Error("network.downloader is unavailable; use fetch instead"))
-        }
+            downloadFile: async (options) => {
+                const url = options && options.url;
+                if (!url) throw new Error("downloadFile: missing url");
+                const response = await env.fetch(url, { method: "GET" });
+                const buffer = await response.arrayBuffer();
+                const filePath = options.filePath || ("data://download/" + Date.now());
+                downloadedFiles.set(filePath, new Uint8Array(buffer));
+                return { status: response.status, filePath };
+            },
+        },
+    };
+    env.image = {
+        convert: async (options) => {
+            const source = options && options.filePath;
+            const target = options && options.targetFilePath;
+            if (source && target) downloadedFiles.set(target, downloadedFiles.get(source) || new Uint8Array(0));
+            return { filePath: target };
+        },
     };
 
     // Translation table consumed by the bundled `i18n` module helper.
