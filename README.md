@@ -277,6 +277,17 @@ git diff upstream/master -- <某个文件>
 - `touch-action:none` 关闭浏览器手势，长按不再弹上下文菜单（`contextmenu` 也 `preventDefault`）。
 - 运行时为空（项目加载中或启动失败）时忽略点击，不再报 "handleEvent of null"。
 
+## 2.7 App-side 设置页浮层
+
+手机端与窄桌面窗口里不再把 App-side 挤进面板列，而是和代码预览一样作为浮层打开：
+
+- **入口不变**：手机登录侧栏 / 顶栏下拉的 `view_appside` 项，桌面窄窗口用 `#toggle_appside`。`ToolbarManager` 里的 `isAppSideModal()` 判定当前是手机（`zp-mobile`）还是窄桌面（`zp-narrow-code`），这两种情况下 `zpPanelTab("view_appside")` 会被拦截，转调 `window.zpOpenAppSide()`。
+- **浮层尺寸**：`body.zp-appside-open #view_appside` 固定居中，`min(94vw, 430px) × min(84vh, 880px)`（`dvh` 优先），圆角 12px、深色投影，内部 `.appside_panel` 拉满宽高。
+- **手机壳**：`.appside_body` 用 `container-type:size`，`.appside_phone` 取 `min(100cqw, calc(100cqh * 9 / 19))` 并按 `aspect-ratio:9/19` 撑满浮层高度；设置页 iframe 内部以 250px 为设计宽度做 `body.style.zoom` 等比放大（不支持容器查询的旧 WebView 回退为 `min(250px, 100%)`）。
+- **关闭方式**：面板头部新增关闭按钮（`.appside_close`，仅浮层模式下显示）、复用 `#zp_code_backdrop` 遮罩点击、`zpHandleBack()` 返回键，三者都调用 `window.zpCloseAppSide()` 移除 `zp-appside-open`。
+- **与代码浮层互斥**：`zpOpenAppSide()` 会先 `zpCloseCode()`，`zpOpenCode()` 会先 `zpCloseAppSide()`，避免两层浮层叠在一起。
+- **启动恢复**：`activePanel` 记录的是 `view_appside` 时，浮层模式下回落到 `view_console`，避免刷新后出现没有内容的面板列。
+
 ---
 
 # 三、模拟器内核
@@ -432,6 +443,18 @@ git diff upstream/master -- <某个文件>
 | `Windows/src/ui_managment/ToolbarManager.js` | +11 / −3 | 面板表加入 `view_appside`，与其余面板互斥切换 |
 | `Windows/src/zepp_player/i18n.js` | +22 | `toolbar.appSide` / `panel.appSide` / `appSide.*` 中英文案 |
 | `Windows/src/index.browser.js` | +2 | 初始化 `AppSidePanel` |
+
+### 移动端 app-side 增量（test1 之后，未单独发行）
+
+| 文件 | 增/删 | 说明 |
+| --- | --- | --- |
+| `Windows/app/index.css` | +47 / −3 | App-side 浮层（手机 / 窄桌面）、关闭按钮、遮罩复用、旧 WebView 的 250px 定宽回退 |
+| `Windows/src/ui_managment/ToolbarManager.js` | +44 / −1 | `zpOpenAppSide()` / `zpCloseAppSide()`、浮层模式下拦截 `zpPanelTab`、启动恢复回落 |
+| `Windows/src/index.browser.js` | +10 / −2 | 遮罩点击优先关闭 App-side 浮层、返回键处理 |
+| `Windows/src/ui_managment/AppSidePanel.js` | +5 / −1 | 面板头部新增关闭按钮 |
+| `Windows/src/zepp_player/i18n.js` | +2 | `appSide.close` 中英文案 |
+| `Android/build.ps1` | +4 / −2 | 前端来源改为 `..\Windows`（原 `..\ZeppPlayer-master` 已不存在），版本号 1.11.1 |
+| `Android/AndroidManifest.xml` | +2 / −2 | versionCode 11101 / versionName 1.11.1 |
 
 ---
 

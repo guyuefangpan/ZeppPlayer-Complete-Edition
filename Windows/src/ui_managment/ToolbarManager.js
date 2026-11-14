@@ -26,6 +26,12 @@ import { showToast } from "../zepp_player/zpToast.js";
 // Defined at module scope: the panel buttons in the top toolbar must work even
 // if the rest of the boot sequence fails, so this can't live inside init().
 window.zpPanelTab = (panelId, el) => {
+    // Phones and narrow desktop windows open the app-side page as a modal (see
+    // index.css), because the panel column is far too small for a phone frame.
+    if(panelId === "view_appside" && isAppSideModal()) {
+        window.zpOpenAppSide();
+        return;
+    }
     const panels = ["view_console", "view_edit", "view_explorer", "view_appside"];
     const panelButtons = {
         view_console: "toggle_console",
@@ -60,6 +66,40 @@ window.zpPanelTab = (panelId, el) => {
     AppSettingsManager.setObject("activePanel", panelId);
 };
 
+/* The app-side page shares the code preview's modal treatment on phones and in
+ * narrow desktop windows. */
+function isAppSideModal() {
+    return document.body.classList.contains("zp-mobile")
+        || document.body.classList.contains("zp-narrow-code");
+}
+
+window.zpOpenAppSide = () => {
+    try {
+        if(!isAppSideModal()) {
+            window.zpPanelTab("view_appside", null);
+            return;
+        }
+        window.zpCloseCode();
+        const panel = document.getElementById("view_appside");
+        if(panel) panel.style.display = "";
+        document.body.classList.add("zp-appside-open");
+        const item = document.querySelector('.zp-split__item[data-panel="view_appside"]');
+        if(item) item.classList.add("active");
+    } catch (e) {}
+};
+
+window.zpCloseAppSide = () => {
+    try {
+        document.body.classList.remove("zp-appside-open");
+        if(isAppSideModal()) {
+            const panel = document.getElementById("view_appside");
+            if(panel) panel.style.display = "none";
+        }
+        const item = document.querySelector('.zp-split__item[data-panel="view_appside"]');
+        if(item) item.classList.remove("active");
+    } catch (e) {}
+};
+
 /* The code panel is a modal on phones and in narrow desktop windows (see
  * index.css). Kept at module scope so the toolbar button keeps working when
  * init() fails. */
@@ -68,6 +108,7 @@ window.zpOpenCode = () => {
         const modal = document.body.classList.contains("zp-mobile")
             || document.body.classList.contains("zp-narrow-code");
         if(!modal) return;
+        window.zpCloseAppSide();
         document.body.classList.add("zp-code-open");
         const item = document.querySelector('.zp-split__item[data-panel="code"]');
         if(item) item.classList.add("active");
@@ -145,7 +186,9 @@ export class ToolbarManager {
 
         // Panel switching lives at module scope; just restore the saved tab.
         const saved = AppSettingsManager.getObject("activePanel", "view_console");
-        const target = (saved && document.getElementById(saved)) ? saved : "view_console";
+        let target = (saved && document.getElementById(saved)) ? saved : "view_console";
+        // The app-side page is a modal there, so never reopen it on boot.
+        if (target === "view_appside" && isAppSideModal()) target = "view_console";
         window.zpPanelTab(target, null);
 
         ToolbarManager.actionToggleOverlay = ToolbarManager.bindSwitchBtn({

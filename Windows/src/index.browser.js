@@ -119,11 +119,15 @@ window.zpSplitFile = (kind) => {
     else if (kind === "folder") window.zpOpenProjects();
 };
 
-/* Tapping the dimmed backdrop closes the code modal. The panel owns the
- * unsaved-changes guard, so route through it when it is mounted. */
+/* Tapping the dimmed backdrop closes whichever modal is open. The code panel
+ * owns the unsaved-changes guard, so route through it when it is mounted. */
 const codeBackdrop = document.getElementById("zp_code_backdrop");
 if (codeBackdrop) {
     codeBackdrop.addEventListener("click", () => {
+        if (document.body.classList.contains("zp-appside-open")) {
+            window.zpCloseAppSide();
+            return;
+        }
         const close = window.zpRequestCloseCode;
         if (typeof close === "function") close();
         else window.zpCloseCode();
@@ -196,6 +200,10 @@ window.zpHandleBack = () => {
         return true;
     }
     if (document.getElementById("zp-dialog-overlay")) return true;
+    if (document.body.classList.contains("zp-appside-open")) {
+        window.zpCloseAppSide();
+        return true;
+    }
     if (document.body.classList.contains("zp-code-open")) {
         const close = window.zpRequestCloseCode;
         if (typeof close === "function") close();

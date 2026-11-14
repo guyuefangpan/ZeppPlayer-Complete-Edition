@@ -15,11 +15,13 @@ $BT = Join-Path $SDK "build-tools\35.0.0"
 $ANDROID_JAR = Join-Path $SDK "platforms\android-35\android.jar"
 
 $ROOT = $PSScriptRoot
-$MASTER = Join-Path $ROOT "..\ZeppPlayer-master"
+# The desktop tree in this repository is the single source of truth for the
+# shared web front-end (the old sibling copy no longer exists).
+$MASTER = Join-Path $ROOT "..\Windows"
 $BUILD = Join-Path $ROOT "build"
 $ASSETS = Join-Path $ROOT "assets"
 $RELEASE = Join-Path $ROOT "release"
-$VERSION = "1.11.0"
+$VERSION = "1.11.1"
 $VER_PARTS = $VERSION.Split(".")
 $VER_CODE = [int]$VER_PARTS[0] * 10000 + [int]$VER_PARTS[1] * 100 + [int]$VER_PARTS[2]
 $OUT_APK = Join-Path $RELEASE "ZeppPlayer-$VERSION.apk"

@@ -75,6 +75,10 @@ export default class AppSidePanel {
         this.stateLabel = document.createElement("small");
         titles.append(title, this.stateLabel);
 
+        this.closeButton = this.iconButton("close", t("appSide.close", "Close"), () => {
+            if (window.zpCloseAppSide) window.zpCloseAppSide();
+        });
+        this.closeButton.classList.add("appside_close");
         this.restartButton = this.iconButton("refresh", t("appSide.restart", "Restart app-side"), () => {
             this.manager.restart();
         });
@@ -85,7 +89,7 @@ export default class AppSidePanel {
             this.renderPage();
         });
 
-        head.append(this.dot, titles, this.restartButton, this.clearButton);
+        head.append(this.dot, titles, this.closeButton, this.restartButton, this.clearButton);
 
         const body = document.createElement("div");
         body.className = "appside_body";

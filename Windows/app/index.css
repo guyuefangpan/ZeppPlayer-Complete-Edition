@@ -1108,7 +1108,8 @@ body.zp-mobile .display_base canvas {
     max-height: 100%;
 }
 
-/* Dims the page behind the code modal (phones and narrow desktop windows). */
+/* Dims the page behind the code or app-side modal (phones and narrow desktop
+ * windows). */
 .zp-code-backdrop {
     display: none;
     position: fixed;
@@ -1117,7 +1118,8 @@ body.zp-mobile .display_base canvas {
     background: rgba(24, 24, 24, .55);
 }
 
-body.zp-code-open .zp-code-backdrop {
+body.zp-code-open .zp-code-backdrop,
+body.zp-appside-open .zp-code-backdrop {
     display: block;
 }
 
@@ -1294,6 +1296,7 @@ body.zp-mobile #view_explorer .prop_row strong {
 .appside_panel {
     display: flex;
     flex-direction: column;
+    width: 100%;
     height: 100%;
     gap: 8px;
     padding: 10px;
@@ -1385,7 +1388,9 @@ body.zp-mobile #view_explorer .prop_row strong {
 .appside_phone {
     flex: 0 0 auto;
     /* Phone-like portrait screen: take the largest 9:19 surface that fits the
-       panel box, whichever side runs out first. */
+       panel box, whichever side runs out first. Older WebViews without
+       container query units keep the fixed fallback. */
+    width: min(250px, 100%);
     width: min(100cqw, calc(100cqh * 9 / 19));
     aspect-ratio: 9 / 19;
     max-height: 100%;
@@ -1472,5 +1477,44 @@ body.zp-mobile #view_explorer .prop_row strong {
     height: 100%;
     border: 0;
     background: transparent;
+}
+
+/* The close button only exists in the modal treatment below. */
+.appside_close {
+    display: none;
+}
+
+body.zp-appside-open .appside_close {
+    display: flex;
+}
+
+/* App-side settings: the same centred modal as the code preview on phones and
+ * in narrow desktop windows, because the panel column can never be tall or
+ * wide enough for a phone-sized screen. */
+body.zp-mobile #view_appside,
+body.zp-narrow-code:not(.zp-mobile) #view_appside {
+    display: none;
+}
+
+body.zp-mobile.zp-appside-open #view_appside,
+body.zp-narrow-code:not(.zp-mobile).zp-appside-open #view_appside {
+    display: block;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 70;
+    width: min(94vw, 430px);
+    height: min(84vh, 880px);
+    height: min(84dvh, 880px);
+    min-width: 0;
+    max-width: none;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+    background: var(--editor);
+    overflow: hidden;
 }
 
