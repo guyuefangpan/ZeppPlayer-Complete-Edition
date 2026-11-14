@@ -26,8 +26,13 @@ import { showToast } from "../zepp_player/zpToast.js";
 // Defined at module scope: the panel buttons in the top toolbar must work even
 // if the rest of the boot sequence fails, so this can't live inside init().
 window.zpPanelTab = (panelId, el) => {
-    const panels = ["view_console", "view_edit", "view_explorer"];
-    const panelButtons = { view_console: "toggle_console", view_edit: "toggle_edit", view_explorer: "toggle_explorer" };
+    const panels = ["view_console", "view_edit", "view_explorer", "view_appside"];
+    const panelButtons = {
+        view_console: "toggle_console",
+        view_edit: "toggle_edit",
+        view_explorer: "toggle_explorer",
+        view_appside: "toggle_appside",
+    };
     for(const pid of panels) {
         const panel = document.getElementById(pid);
         if(panel) panel.style.display = pid === panelId ? "" : "none";
@@ -41,7 +46,7 @@ window.zpPanelTab = (panelId, el) => {
     // Phones show a single dropdown icon that mirrors the active panel.
     const splitIcon = document.getElementById("zp_split_panels_btn");
     if(splitIcon) {
-        const icons = {view_console: "terminal", view_edit: "edit", view_explorer: "account_tree"};
+        const icons = {view_console: "terminal", view_edit: "edit", view_explorer: "account_tree", view_appside: "phone_iphone"};
         splitIcon.textContent = icons[panelId] || "terminal";
     }
     const splitMenu = document.getElementById("zp_split_panels_menu");
@@ -384,6 +389,9 @@ export class ToolbarManager {
                 return;
             case "x":
                 window.zpPanelTab("view_explorer", null);
+                return;
+            case "a":
+                window.zpPanelTab("view_appside", null);
                 return;
             case "+":
             case "=":

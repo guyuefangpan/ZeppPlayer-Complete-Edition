@@ -1075,7 +1075,8 @@ body.zp-mobile .left_panel {
 
 body.zp-mobile #view_console,
 body.zp-mobile #view_edit,
-body.zp-mobile #view_explorer {
+body.zp-mobile #view_explorer,
+body.zp-mobile #view_appside {
     flex: 1 1 auto;
     height: auto;
     min-width: 0;
@@ -1279,3 +1280,197 @@ body.zp-mobile .zpc__tree {
 body.zp-mobile #view_explorer .prop_row strong {
     min-width: 100px;
 }
+
+/* ---- app-side panel ------------------------------------------------ */
+#view_appside {
+    overflow: hidden;
+    /* Fill the whole left column: `flex: 1` would collapse the panel to its
+       content height inside the auto-height column. */
+    flex: 0 0 auto;
+    height: calc(100vh - 130px);
+    min-height: 420px;
+}
+
+.appside_panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 8px;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.appside_head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+}
+
+.appside_dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #9e9e9e;
+    flex: none;
+}
+
+.appside_dot.on {
+    background: #4caf50;
+    box-shadow: 0 0 6px #4caf50;
+}
+
+.appside_dot.error {
+    background: #e53935;
+}
+
+.appside_titles {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    flex: 1;
+    min-width: 0;
+}
+
+.appside_titles strong {
+    font-size: 13px;
+    letter-spacing: .02em;
+}
+
+.appside_titles small {
+    opacity: .6;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appside_icon {
+    background: transparent;
+    color: inherit;
+    border: 0;
+    padding: 4px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    opacity: .7;
+    flex: none;
+}
+
+.appside_icon:hover {
+    background: rgba(255, 255, 255, .08);
+    opacity: 1;
+}
+
+.appside_icon:disabled {
+    opacity: .25;
+    cursor: default;
+}
+
+.appside_icon .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.appside_body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Lets the phone scale with the space the panel actually got, so it grows
+       when the window is maximized instead of staying at a fixed width. */
+    container-type: size;
+}
+
+.appside_phone {
+    flex: 0 0 auto;
+    /* Phone-like portrait screen: take the largest 9:19 surface that fits the
+       panel box, whichever side runs out first. */
+    width: min(100cqw, calc(100cqh * 9 / 19));
+    aspect-ratio: 9 / 19;
+    max-height: 100%;
+    box-sizing: border-box;
+    /* The status bar below scales with the phone itself. */
+    container-type: size;
+    display: flex;
+    flex-direction: column;
+    background: #0b0b0d;
+    border: 1px solid #3a3a3a;
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 3px #000, 0 6px 18px rgba(0, 0, 0, .35);
+}
+
+.appside_phone_bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2cqh 3cqw .8cqh;
+    font-size: clamp(10px, 1.9cqh, 18px);
+    color: #cfcfcf;
+    background: #0b0b0d;
+    flex: none;
+}
+
+.appside_phone_notch {
+    width: 26cqw;
+    height: 2.7cqh;
+    background: #000;
+    border-radius: 0 0 2.4cqw 2.4cqw;
+    margin-top: -1.2cqh;
+}
+
+.appside_phone_bar .material-symbols-outlined {
+    font-size: clamp(13px, 2.4cqh, 22px);
+}
+
+.appside_screen {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #111114;
+    color: #ececec;
+    font-size: 12px;
+}
+
+.appside_empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    opacity: .55;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.appside_empty .material-symbols-outlined {
+    font-size: 34px;
+}
+
+.appside_empty p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.appside_foot {
+    font-size: 10px;
+    opacity: .45;
+    text-align: center;
+    flex: none;
+    min-height: 12px;
+}
+
+/* The settings page runs as a real document inside the phone frame, like the
+ * WebView a phone client uses. */
+.appside_frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: transparent;
+}
+

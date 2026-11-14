@@ -40,6 +40,12 @@ const SYS_MODULES = {
     "@zos/power": `{}`,
     "@zos/user-feedback": `{}`,
 
+    /* ZeppOS apps built with @zeppos/zml. */
+    "@zeppos/zml/base-side": `{ BaseSideService: __zp_base_side, BaseSideService_: __zp_base_side }`,
+    "@zeppos/zml/base-page": `{ BasePage: __zp_base_page, BasePageService: __zp_base_page }`,
+    "@zeppos/zml/base-service": `{ BaseSideService: __zp_base_side }`,
+    "@zeppos/zml": `{ BaseSideService: __zp_base_side, BasePage: __zp_base_page }`,
+
     /* ZeppOS 1.x samples import system modules by bare name. */
     "i18n": `{ gettext: __zp_gettext, getText: __zp_gettext }`,
     "hmUI": `(typeof hmUI !== "undefined" ? hmUI : {})`,
@@ -346,6 +352,154 @@ const __zp_scene = {
     },
     getAppInfo: function () { return {appId: 0, appName: ""}; },
 };
+
+/* ---------------------------- ZML (zml.js) compatibility ------------------
+ * ZeppOS apps built with @zeppos/zml talk JSON envelopes over peerSocket.
+ * The real library ships a binary protocol for Bluetooth; inside the
+ * simulator both sides share this lightweight, wire-compatible-with-itself
+ * version so requests/calls still work end to end. */
+function __zp_zmlListen(__zp_cb) {
+    const __zp_fn = function (__zp_raw) {
+        let __zp_text = __zp_raw;
+        if (__zp_text && typeof __zp_text === "object" && !(typeof Uint8Array !== "undefined" && __zp_text instanceof Uint8Array)) {
+            if (__zp_text.data !== undefined) __zp_text = __zp_text.data;
+        }
+        if (typeof __zp_text !== "string") {
+            try {
+                __zp_text = (typeof __zp_text.toString === "function")
+                    ? __zp_text.toString("utf-8")
+                    : String(__zp_text);
+            } catch (e) { return; }
+        }
+        let __zp_msg = null;
+        try { __zp_msg = JSON.parse(__zp_text); } catch (e) { return; }
+        if (!__zp_msg || typeof __zp_msg !== "object" || !__zp_msg.__zp_zml) return;
+        __zp_cb(__zp_msg);
+    };
+    try { messaging.peerSocket.addListener("message", __zp_fn); } catch (e) {}
+    return __zp_fn;
+}
+
+function __zp_zmlUnlisten(__zp_fn) {
+    try { messaging.peerSocket.removeListener("message", __zp_fn); } catch (e) {}
+}
+
+function __zp_zmlSend(__zp_msg) {
+    __zp_msg.__zp_zml = 1;
+    try { messaging.peerSocket.send(JSON.stringify(__zp_msg)); } catch (e) {}
+}
+
+function __zp_base_side(__zp_opts) {
+    __zp_opts = __zp_opts || {};
+    const __zp_pending = Object.create(null);
+    let __zp_seq = 0;
+    let __zp_listener = null;
+
+    const __zp_respond = function (__zp_id, __zp_error, __zp_result) {
+        const __zp_payload = {type: "response", id: __zp_id, result: __zp_result};
+        if (__zp_error) __zp_payload.error = String(__zp_error.message || __zp_error);
+        __zp_zmlSend(__zp_payload);
+    };
+
+    return Object.assign({}, __zp_opts, {
+        onInit: function () {
+            __zp_listener = __zp_zmlListen(function (__zp_msg) {
+                if (__zp_msg.type === "response") {
+                    const __zp_wait = __zp_pending[__zp_msg.id];
+                    if (!__zp_wait) return;
+                    delete __zp_pending[__zp_msg.id];
+                    if (__zp_msg.error) __zp_wait.reject(new Error(__zp_msg.error));
+                    else __zp_wait.resolve(__zp_msg.result);
+                    return;
+                }
+                if (__zp_msg.type === "call") {
+                    if (typeof __zp_opts.onCall === "function") {
+                        try { __zp_opts.onCall(__zp_msg.payload, __zp_msg.method); } catch (e) {}
+                    }
+                    return;
+                }
+                if (__zp_msg.type === "request") {
+                    const __zp_req = Object.assign({}, __zp_msg.payload || {}, {
+                        method: __zp_msg.method,
+                        params: (__zp_msg.payload && __zp_msg.payload.params) || __zp_msg.params,
+                    });
+                    try {
+                        if (typeof __zp_opts.onRequest === "function") {
+                            __zp_opts.onRequest(__zp_req, function (__zp_err, __zp_res) {
+                                __zp_respond(__zp_msg.id, __zp_err, __zp_res);
+                            });
+                        } else {
+                            __zp_respond(__zp_msg.id, new Error("no onRequest handler"));
+                        }
+                    } catch (e) {
+                        __zp_respond(__zp_msg.id, e);
+                    }
+                }
+            });
+            try {
+                if (typeof settings !== "undefined" && settings.settingsStorage
+                    && typeof settings.settingsStorage.addListener === "function") {
+                    settings.settingsStorage.addListener("change", function () {
+                        if (typeof __zp_opts.onSettingsChange !== "function") return;
+                        try {
+                            __zp_opts.onSettingsChange(settings.settingsStorage.toObject
+                                ? settings.settingsStorage.toObject()
+                                : {});
+                        } catch (e) {}
+                    });
+                }
+            } catch (e) {}
+            if (typeof __zp_opts.onInit === "function") return __zp_opts.onInit();
+        },
+        onDestroy: function () {
+            if (__zp_listener) __zp_zmlUnlisten(__zp_listener);
+            __zp_listener = null;
+            if (typeof __zp_opts.onDestroy === "function") return __zp_opts.onDestroy();
+        },
+        call: function (__zp_payload, __zp_method) {
+            __zp_zmlSend({type: "call", method: __zp_method, payload: __zp_payload});
+        },
+        request: function (__zp_payload, __zp_method) {
+            return new Promise(function (__zp_resolve, __zp_reject) {
+                const __zp_id = ++__zp_seq;
+                __zp_pending[__zp_id] = {resolve: __zp_resolve, reject: __zp_reject};
+                __zp_zmlSend({type: "request", id: __zp_id, method: __zp_method, payload: __zp_payload});
+            });
+        },
+    });
+}
+
+function __zp_base_page(__zp_cfg) {
+    __zp_cfg = __zp_cfg || {};
+    const __zp_pending = Object.create(null);
+    let __zp_seq = 0;
+    __zp_zmlListen(function (__zp_msg) {
+        if (__zp_msg.type !== "response") return;
+        const __zp_wait = __zp_pending[__zp_msg.id];
+        if (!__zp_wait) return;
+        delete __zp_pending[__zp_msg.id];
+        if (__zp_msg.error) __zp_wait.reject(new Error(__zp_msg.error));
+        else __zp_wait.resolve(__zp_msg.result);
+    });
+    return Object.assign({}, __zp_cfg, {
+        call: function (__zp_payload, __zp_method) {
+            __zp_zmlSend({type: "call", method: __zp_method, payload: __zp_payload});
+        },
+        request: function (__zp_payload, __zp_callback, __zp_method) {
+            const __zp_promise = new Promise(function (__zp_resolve, __zp_reject) {
+                const __zp_id = ++__zp_seq;
+                __zp_pending[__zp_id] = {resolve: __zp_resolve, reject: __zp_reject};
+                __zp_zmlSend({type: "request", id: __zp_id, method: __zp_method, payload: __zp_payload});
+            });
+            if (typeof __zp_callback === "function") {
+                __zp_promise.then(function (__zp_res) { __zp_callback(null, __zp_res); },
+                    function (__zp_err) { __zp_callback(__zp_err); });
+                return;
+            }
+            return __zp_promise;
+        },
+    });
+}
 
 function __zp_sys(__zp_id) {
     switch (__zp_id) {

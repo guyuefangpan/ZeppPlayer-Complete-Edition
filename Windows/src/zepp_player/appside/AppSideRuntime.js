@@ -1,8 +1,12 @@
 /*
     ZeppPlayer - app-side (companion / side-service) sandbox runtime
-    Runs the phone-side companion script (app-side.js) of a ZeppOS app
-    inside the simulator, so it talks to the device-side app through an
-    in-process virtual link (no Bluetooth / no physical watch).
+    Runs the phone-side companion script of a ZeppOS app inside the simulator,
+    so it can talk to the device-side app through an in-process virtual link
+    (no Bluetooth / no physical watch).
+
+    The host surface mirrors what a real phone-side runtime exposes
+    (and what OronBox implements): messaging, settings, sideService, getApp,
+    fetch, Buffer, Logger/HmUtils and the AppSideService entry point.
     Part of the "last dance" ZeppPlayer extension. GPL-3.0 compatible.
 */
 
@@ -10,11 +14,32 @@ import { ZBuffer } from "./ZBuffer.js";
 
 function toBytes(data) {
     if (data instanceof ZBuffer) return data;
-    if (data instanceof Uint8Array) return new ZBuffer(data);
-    if (data instanceof ArrayBuffer) return new ZBuffer(new Uint8Array(data));
+    if (data instanceof Uint8Array) return new ZBuffer(data.buffer, data.byteOffset, data.byteLength);
+    if (data instanceof ArrayBuffer) return new ZBuffer(data);
     if (Array.isArray(data)) return new ZBuffer(Uint8Array.from(data));
+    if (data == null) return ZBuffer.alloc(0);
     if (typeof data === "string") return ZBuffer.from(data, "utf8");
     return ZBuffer.from(JSON.stringify(data), "utf8");
+}
+
+function toText(data) {
+    if (data == null) return "";
+    if (typeof data === "string") return data;
+    if (data instanceof ZBuffer || data instanceof Uint8Array) {
+        return typeof data.toString === "function" ? data.toString("utf-8") : "";
+    }
+    try { return JSON.stringify(data); } catch (e) { return String(data); }
+}
+
+function zeppFormat(text, ...args) {
+    let index = 0;
+    return String(text).replace(/%([%sdif])/g, (all, type) => {
+        if (type === "%") return "%";
+        const value = args[index++];
+        if (type === "d" || type === "i") return String(parseInt(value, 10));
+        if (type === "f") return String(Number(value));
+        return String(value == null ? "" : value);
+    });
 }
 
 /**
@@ -22,8 +47,9 @@ function toBytes(data) {
  * names injected into the companion script, same trick as the device env).
  *
  * @param {object} host AppSideManager bridge:
- *   onConsole(tag, args), readSettings(), writeSettings(obj),
- *   sendToDevice(ZBuffer), appName
+ *   onConsole(tag, args), readSettings(), writeSettings(obj, origin),
+ *   sendToDevice(ZBuffer), appName, appId, appVersion, i18nTable,
+ *   screenWidth, designWidth
  */
 export function createAppSideSandbox(host) {
     const env = {};
@@ -31,110 +57,277 @@ export function createAppSideSandbox(host) {
     // console ----------------------------------------------------------
     env.console = new Proxy({}, {
         get(_t, level) {
+            if (level === "debug") level = "log";
             return (...args) => host.onConsole(String(level), args);
         }
     });
 
+    // Logger / HmUtils --------------------------------------------------
+    const logger = {
+        log: (...args) => host.onConsole("log", args),
+        debug: (...args) => host.onConsole("log", args),
+        info: (...args) => host.onConsole("info", args),
+        warn: (...args) => host.onConsole("warn", args),
+        error: (...args) => host.onConsole("error", args),
+    };
+    const loggerFactory = {
+        getLogger: () => logger,
+        ...logger,
+    };
+    env.Logger = loggerFactory;
+    env.HmLogger = logger;
+    env.DeviceRuntimeCore = { HmLogger: loggerFactory };
+
+    class ZeppLang {
+        constructor(lang) { this.lang = lang || "en-US"; }
+        getLang() { return this.lang; }
+        setLang(lang) { this.lang = lang; }
+    }
+    const i18nTable = host.i18nTable || {};
+    const defaultLang = host.defaultLanguage || "en-US";
+    const langOf = (settings) => (settings && settings.lang) || defaultLang;
+
+    function gettextFactory(table, current, fallback) {
+        let lang = current instanceof ZeppLang ? current : new ZeppLang(current);
+        const pick = (l) => (table && (table[l] || table[String(l).split("-")[0]])) || {};
+        let messages = Object.assign({}, pick(defaultLang), pick(fallback), pick(lang.getLang()));
+        const gettext = (id, ...args) => zeppFormat(messages[id] === undefined ? id : messages[id], ...args);
+        gettext.locale = (locale) => {
+            lang.setLang(locale);
+            messages = Object.assign({}, pick(defaultLang), pick(fallback), pick(locale));
+        };
+        return gettext;
+    }
+    env.HmUtils = {
+        Lang: ZeppLang,
+        gettextFactory,
+        getLanguage: (settings) => langOf(settings),
+        getSideLanguage: (settings) => langOf(settings),
+        getDeviceLanguage: () => defaultLang,
+        format: zeppFormat,
+        formatStrict: zeppFormat,
+        printf: (message, ...args) => host.onConsole("log", [zeppFormat(message, ...args)]),
+        sprintf: zeppFormat,
+    };
+    env.userSettings = { lang: defaultLang, language: defaultLang };
+
     // messaging / peerSocket -------------------------------------------
+    const listeners = [];
     const peerSocket = {
-        _listeners: [],
-        addListener(event, cb) {
-            if (event !== "message") return;
-            if (!this._listeners.includes(cb)) this._listeners.push(cb);
+        addListener(event, callback) {
+            if (typeof callback !== "function") throw new TypeError("peerSocket listener must be a function");
+            if (event === "message" && !listeners.includes(callback)) listeners.push(callback);
         },
-        removeListener(event, cb) {
+        removeListener(event, callback) {
             if (event !== "message") return;
-            this._listeners = this._listeners.filter(l => l !== cb);
+            const index = listeners.indexOf(callback);
+            if (index !== -1) listeners.splice(index, 1);
         },
         send(data) {
             try { host.sendToDevice(toBytes(data)); }
             catch (e) { host.onConsole("error", ["peerSocket.send failed", e]); }
-        },
-        __receive(bytes) {
-            const buf = toBytes(bytes);
-            for (const cb of this._listeners.slice()) {
-                try { cb(buf); } catch (e) {
-                    host.onConsole("error", ["peerSocket listener error", e]);
-                }
-            }
-            if (typeof this.onmessage === "function") {
-                try { this.onmessage({ data: buf }); } catch (e) {
-                    host.onConsole("error", ["peerSocket.onmessage error", e]);
-                }
-            }
         }
     };
     env.messaging = { peerSocket };
     env.peerSocket = peerSocket;
 
-    // settings ----------------------------------------------------------
-    const settingsStorage = {
-        _onchange: [],
-        read() { return host.readSettings(); },
-        write(v) { host.writeSettings(v || {}); },
-        getItem(key) {
-            const d = host.readSettings();
-            return (d && Object.prototype.hasOwnProperty.call(d, key)) ? d[key] : null;
-        },
-        setItem(key, value) {
-            const d = host.readSettings();
-            d[key] = value;
-            host.writeSettings(d);
-            for (const cb of this._onchange.slice()) {
-                try { cb({ key, newValue: value }); } catch (e) {}
+    // sideService / getApp ---------------------------------------------
+    env.sideService = {
+        appInfo: {
+            app: {
+                appId: host.appId,
+                appName: host.appName,
+                appVersion: host.appVersion,
             }
         },
+        launchReasons: host.launchReasons || {},
+        launchArgs: host.launchArgs || {},
+    };
+    // A real companion always sits on the well-known side port 1004.
+    env.getApp = () => ({
+        port2: 1004,
+        appId: host.appId,
+        appName: host.appName,
+        appVersion: host.appVersion,
+    });
+
+    // fetch -------------------------------------------------------------
+    env.fetch = (input, options) => {
+        const request = typeof input === "string" ? Object.assign({}, options || {}, { url: input }) : (input || {});
+        const url = request.url;
+        const init = Object.assign({}, request);
+        delete init.url;
+        return Promise.resolve(window.fetch(url, init)).then(async (response) => {
+            const headers = {};
+            try { response.headers.forEach((v, k) => { headers[k] = v; }); } catch (e) {}
+            const bodyText = async () => {
+                try { return await response.text(); } catch (e) { return ""; }
+            };
+            return {
+                url: response.url || url,
+                status: response.status,
+                statusText: response.statusText,
+                headers,
+                body: undefined,
+                redirected: !!response.redirected,
+                type: response.type || "basic",
+                ok: response.status >= 200 && response.status < 300,
+                text: bodyText,
+                json: async () => JSON.parse(await bodyText()),
+                arrayBuffer: async () => {
+                    try { return await response.arrayBuffer(); } catch (e) { return new ArrayBuffer(0); }
+                },
+                clone: () => response.clone ? response.clone() : response,
+            };
+        });
+    };
+
+    // settings ----------------------------------------------------------
+    const values = new Map();
+    const initial = host.readSettings ? host.readSettings() : {};
+    for (const key of Object.keys(initial || {})) {
+        if (initial[key] !== undefined && initial[key] !== null) values.set(String(key), String(initial[key]));
+    }
+    const storageListeners = [];
+    const persist = () => {
+        const snapshot = {};
+        for (const [k, v] of values) snapshot[k] = v;
+        host.writeSettings(snapshot, "app-side");
+    };
+    const notify = (change) => {
+        for (const callback of [...storageListeners]) {
+            try { callback(change); } catch (e) { host.onConsole("error", [e]); }
+        }
+    };
+    const settingsStorage = {
+        get length() { return values.size; },
+        getItem(key) {
+            key = String(key);
+            return values.has(key) ? values.get(key) : undefined;
+        },
+        setItem(key, value) {
+            key = String(key);
+            value = String(value);
+            const oldValue = values.has(key) ? values.get(key) : undefined;
+            values.set(key, value);
+            persist();
+            notify({ key, oldValue, newValue: value });
+        },
         removeItem(key) {
-            const d = host.readSettings();
-            delete d[key];
-            host.writeSettings(d);
+            key = String(key);
+            if (!values.has(key)) return;
+            const oldValue = values.get(key);
+            values.delete(key);
+            persist();
+            notify({ key, oldValue, newValue: undefined });
         },
-        clear() { host.writeSettings({}); },
-        addListener(cb) { this._onchange.push(cb); },
-        removeListener(cb) {
-            this._onchange = this._onchange.filter(l => l !== cb);
+        clear() {
+            const entries = Array.from(values.entries());
+            values.clear();
+            persist();
+            for (const [key, oldValue] of entries) notify({ key, oldValue, newValue: undefined });
         },
-        onchange: undefined
+        key: (index) => Array.from(values.keys())[index] === undefined
+            ? null
+            : Array.from(values.keys())[index],
+        toObject: () => Object.fromEntries(values),
+        addListener(event, callback) {
+            if (event !== "change") return;
+            if (typeof callback !== "function") throw new TypeError("settingsStorage listener must be a function");
+            if (!storageListeners.includes(callback)) storageListeners.push(callback);
+        },
+        removeListener(event, callback) {
+            if (event !== "change") return;
+            if (typeof callback !== "function") {
+                storageListeners.length = 0;
+                return;
+            }
+            const index = storageListeners.indexOf(callback);
+            if (index !== -1) storageListeners.splice(index, 1);
+        }
     };
     env.settings = { settingsStorage };
     env.settingsStorage = settingsStorage;
 
+    /** The settings page (or the host) changed the stored values. */
+    env.__zbSettingsChanged = (next) => {
+        const previous = new Map(values);
+        values.clear();
+        for (const key of Object.keys(next || {})) {
+            const value = next[key];
+            if (value !== undefined && value !== null) values.set(String(key), String(value));
+        }
+        for (const key of new Set([...previous.keys(), ...values.keys()])) {
+            const oldValue = previous.get(key);
+            const newValue = values.get(key);
+            if (oldValue !== newValue) notify({ key, oldValue, newValue });
+        }
+    };
+
     // AppSideService lifecycle ------------------------------------------
-    let serviceDef = null;
-    env.AppSideService = (def) => { serviceDef = def || {}; };
+    let service = null;
+    env.AppSideService = (def) => {
+        service = def || {};
+        env.appSideService = service;
+    };
     env.registerApp = () => {};
     env.surround = () => {};
 
     env.__zbStart = async () => {
-        if (!serviceDef) return;
-        const hooks = ["onInit", "onStart", "onRun", "onInstanceStart"];
-        for (const h of hooks) {
-            if (typeof serviceDef[h] !== "function") continue;
-            try { await serviceDef[h](); }
-            catch (e) { host.onConsole("error", [`AppSideService.${h} failed`, e]); }
+        if (!service) return;
+        if (typeof service.onInit === "function") {
+            try { await service.onInit(); }
+            catch (e) { host.onConsole("error", ["AppSideService.onInit failed", e]); }
+        }
+        if (typeof service.onRun === "function") {
+            try { await service.onRun(); }
+            catch (e) { host.onConsole("error", ["AppSideService.onRun failed", e]); }
         }
     };
     env.__zbStop = async () => {
-        if (!serviceDef) return;
-        if (typeof serviceDef.onDestroy === "function") {
-            try { await serviceDef.onDestroy(); }
+        if (!service) return;
+        if (typeof service.onDestroy === "function") {
+            try { await service.onDestroy(); }
             catch (e) { host.onConsole("error", ["AppSideService.onDestroy failed", e]); }
         }
+        listeners.length = 0;
     };
-    env.__zbInjectPeer = (bytes) => peerSocket.__receive(bytes);
-    env.__zbGetServiceDef = () => serviceDef;
+    env.__zbInjectPeer = (bytes) => {
+        const message = toBytes(bytes);
+        for (const callback of listeners.slice()) {
+            try { callback(message); }
+            catch (e) { host.onConsole("error", ["peerSocket listener error", e]); }
+        }
+    };
+    env.__zbGetServiceDef = () => service;
 
     // misc globals -------------------------------------------------------
-    env.getApp = () => ({
-        name: host.appName || "unknown",
-        displayName: host.appName || "unknown"
-    });
     env.Buffer = ZBuffer;
-    env.btoa = (s) => (typeof btoa === "function" ? btoa(s) : "");
-    env.atob = (s) => (typeof atob === "function" ? atob(s) : "");
-    env.fetch = host.fetchFn || (typeof fetch === "function" ? fetch.bind(window) : undefined);
+    env.btoa = (s) => ZBuffer.from(String(s), "latin1").toString("base64");
+    env.atob = (s) => ZBuffer.fromBase64(String(s)).toString("latin1");
+    env.transferFile = undefined;
+    env.image = {
+        convert: () => Promise.reject(new Error("Image conversion is unavailable in the simulator"))
+    };
+    env.network = {
+        downloader: {
+            downloadFile: () => Promise.reject(new Error("network.downloader is unavailable; use fetch instead"))
+        }
+    };
+
+    // Translation table consumed by the bundled `i18n` module helper.
+    env.__zp_i18n = Object.assign(
+        {},
+        i18nTable["en-US"] || {},
+        i18nTable[String(defaultLang).split("-")[0]] || {},
+        i18nTable[defaultLang] || {}
+    );
+    env.__zp_screen_width = host.screenWidth || 0;
+    env.__zp_design_width = host.designWidth || 0;
+
     env.globalThis = env;
     env.window = env;
+    env.self = env;
 
     return env;
 }
@@ -149,3 +342,5 @@ export function runAppSideSource(env, source, sourceUrl) {
     fn.apply(null, keys.map(k => env[k]));
     return env;
 }
+
+export { toBytes, toText };

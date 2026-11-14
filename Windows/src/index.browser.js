@@ -18,6 +18,7 @@
 
 import {ConsoleManager} from "./ui_managment/ConsoleManager.js";
 import ExplorerManager from "./ui_managment/ExplorerManager.js";
+import AppSidePanel from "./ui_managment/AppSidePanel.js";
 import {ProjectPicker} from "./ui_managment/ProjectPicker.js";
 import {ToolbarManager} from "./ui_managment/ToolbarManager.js";
 import {initVersionUI} from "./ui_managment/Updater.js";
@@ -578,6 +579,7 @@ const start = async () => {
         try { ToolbarManager.init(player); } catch (e) { bootFail("Toolbar", e); }
         try { ConsoleManager.init(player); } catch (e) { bootWarn("console", e); }
         try { ExplorerManager.init(player); } catch (e) { bootWarn("explorer", e); }
+        try { AppSidePanel.init(player); } catch (e) { bootWarn("app-side", e); }
     }
 
     let fitTimer = null;

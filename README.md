@@ -6,6 +6,8 @@
 
 **变更规模**：相对上游的代码改动共 **65 个文件**（新增 36、修改 27、删除 2），**+14779 / −802 行**。目录重排（`Windows/`、`Android/`）只移动路径，不改变文件内容。
 
+**test1 预发行（桌面端 1.9.1）**：在 1.9.0 基础上补完 app-side 宿主运行环境与宿主 API、还原手机端设置页，并新增与「控制台 / 控件修改 / 资源管理器」同级的 App-side 面板；共 **11 个文件**（新增 2、修改 9），**+1947 / −142 行**（不计统一行尾带来的空白改动），详见 [1.13](#113-app-side-面板与手机端设置页) 与 [八、文件级差异清单](#test1-预发行增量191)。
+
 ## 仓库结构
 
 ```
@@ -36,9 +38,9 @@ git diff upstream/master -- <某个文件>
 
 | 端 | 主要变化 |
 | --- | --- |
-| **桌面端** | 布局改为"图标栏 + 面板列 + 代码面板 + 手表画面"；新增代码预览/修改面板、快捷键面板；顶栏新增导入/打开/导出/快捷键入口；面板由独立开关改为互斥单选；控制台新增工具栏；设置面板新增语言与局域网地址；项目可删除、导入后自动选中；支持拖拽导入与浏览器 zip 导入；GIF 录制改为视频录制；新增截图；输入法下快捷键仍可用；启动流程容错与画布自适应；Electron 主进程、preload 桥与打包配置 |
+| **桌面端** | 布局改为"图标栏 + 面板列 + 代码面板 + 手表画面"；新增代码预览/修改面板、快捷键面板、App-side 面板（手机壳 + 真实手机端设置页）；顶栏新增导入/打开/导出/快捷键入口；面板由独立开关改为互斥单选；控制台新增工具栏；设置面板新增语言与局域网地址；项目可删除、导入后自动选中；支持拖拽导入与浏览器 zip 导入；GIF 录制改为视频录制；新增截图；输入法下快捷键仍可用；启动流程容错与画布自适应；Electron 主进程、preload 桥与打包配置 |
 | **手机端** | 响应式视图判定、竖屏/横屏两套布局；顶栏面板与文件合并为两个下拉；录屏与截图合并为向右展开；侧栏 12 键尺寸与间距校准、三个分区；代码面板改为全屏浮层；设置入口移到侧栏；触控改用 Pointer Events；独立安卓 App |
-| **模拟器内核** | app-side（伴随端）运行时与进程内虚拟链路、messaging/hmBle 模拟、播放器 `dispose()` 与重启去重、日志附带脚本路径 |
+| **模拟器内核** | app-side（伴随端）宿主运行环境与宿主 API（`AppSideService`、`messaging.peerSocket`、ZeppOS 语义 `fetch`、`settingsStorage`、`getApp()`）、进程内虚拟链路、`setting/index.js` 打包与 WebView 式执行、播放器 `dispose()` 与重启去重、日志附带脚本路径 |
 | **国际化** | 新增中英双语词典（322 条词条），默认中文，全界面可切换 |
 
 ---
@@ -207,6 +209,18 @@ git diff upstream/master -- <某个文件>
 - **`Windows/package.json`（+43/−3）**：版本 1.7.2 → 1.9.0，`main` 指向 `Windows/electron_main.js`；新增 `dist:x64` / `dist:ia32` / `dist` 脚本与 electron-builder 配置（NSIS、可选安装目录、桌面与开始菜单快捷方式、`Windows/assets/icon.ico`）；新增 `electron`、`electron-builder` 依赖。
 - **接口清单**（桌面与安卓一致）：`/api/list_projects`、`/api/import_project`、`/api/import_zip_upload`、`/api/import_path`、`/api/delete_project`、`/api/export_project`、`/api/download_project`、`/api/open_projects`、`/api/choose_projects_dir`、`/api/set_projects_dir`、`/api/folder_chooser`、`/api/save_preview`、`/api/save_text`、`/api/change_count`、`/api/watch`、`/api/server_info`。
 
+## 1.13 App-side 面板与手机端设置页
+
+新增 `Windows/src/ui_managment/AppSidePanel.js`（+267），并在 `Windows/app/index.html`、`Windows/app/index.css`、`Windows/src/ui_managment/ToolbarManager.js`、`Windows/src/zepp_player/i18n.js` 中接入。
+
+- **入口**：顶栏 `#toggle_appside`（`phone_iphone`），与「控制台（`terminal`）/「控件修改（`edit`）/「资源管理器（`account_tree`）」四个按钮同级并列；手机端面板下拉新增 App-side 一项；`ToolbarManager` 的面板表加入 `view_appside`，快捷键 `a`。
+- **面板**：`.appside_panel` 由状态点 + 标题（运行状态 · `0x<appId>`）+ 重启/清空按钮 + 手机壳 + 底部提示组成。
+- **手机壳**：`.appside_phone` 固定 9:19，宽高取面板可用空间内的最大 9:19 表面（`min(100cqw, 100cqh * 9 / 19)`），状态栏、刘海、字号按手机尺寸用 `cqw/cqh + clamp()` 等比缩放；面板本身仍与控制台同高。
+- **设置页**：`AppSideManager` 按 `app.json` 的 `module.setting.path`（回退 `/setting/index.js`、`/setting.js`、`/setting/main.js`）用 `EsmBundler` 打包成脚本体；`AppSettingsRuntime.buildSettingsHtml()` 把它注入一份完整 HTML（AppSettingsPage + 组件工厂 + `settingsStorage` + 多语言 + 页面样式），以 `iframe[sandbox="allow-scripts"]` + `srcdoc` 真正执行工程里的设置页代码，而不是由模拟器重画界面。
+- **宿主桥**：页面 → 宿主 `settings`（set/remove/clear）、`asset`（读取项目图片并回传 dataURL）、`log`、`external`；宿主 → 页面 `settingsChanged`、`asset`。
+- **等比放大**：设置页按 250px 设计宽度排版，`body.style.zoom = 视口宽度 / 250`（下限 1），并在 `resize` 时重算；窗口最大化后手机壳变大，整页内容随之等比放大，而不是把布局横向拉伸。
+- **空态**：无项目、项目没有设置页（`settingError`）、设置页加载失败分别显示提示；右上角清空按钮写入空设置并同步给 app-side。
+
 ---
 
 # 二、手机端
@@ -267,10 +281,12 @@ git diff upstream/master -- <某个文件>
 
 # 三、模拟器内核
 
-- **app-side（伴随端）运行时**（新增 `Windows/src/zepp_player/appside/`，+419）
-  - `AppSideManager`：随项目加载 `app-side.js`，维护 `appId`、会话、持久化存储与设备侧接收者集合；用进程内 `VirtualLink` 取代真实蓝牙端点 `0x00a0`。
-  - `AppSideRuntime`：独立沙箱注入 `console`、`setTimeout`、`settings` 等，`onConsole` 转发到主控制台。
-  - `ZBuffer`：Node `Buffer` 常用方法的兼容实现（`from` / `alloc` / `readUInt*` / `writeUInt*` / `toString` 等）。
+- **app-side（伴随端）运行时**（`Windows/src/zepp_player/appside/`）
+  - `AppSideManager`（+267/−30）：随项目加载 `app-side` 入口，维护 `appId`、会话、持久化存储与设备侧接收者集合；用进程内 `VirtualLink` 取代真实蓝牙端点 `0x00a0`；同时按 `module.setting.path` 打包并对外提供 `settingSource`、`settingRevision`、`settingError`。
+  - `AppSideRuntime`（+260/−65）：还原真实 ZeppOS 伴随端宿主环境——`AppSideService`、`sideService`、`messaging.peerSocket`、ZeppOS 语义 `fetch`、`settings.settingsStorage`、`getApp()`（`port2`）、`Buffer`/`ZBuffer`、`HmUtils`/`Logger`；沙箱隔离并转发日志到主控制台。
+  - `AppSettingsRuntime`（新增，+568）：把打包后的 `setting/index.js` 变成一份可直接在 WebView 中运行的 HTML 文档——实现 `AppSettingsPage` 注册、Auth/Button/Image/Link/Section/Select/Slider/Text/TextImageRow/TextInput/Toast/Toggle/View 组件工厂、`settingsKey` 双向绑定、`settingsStorage`、多语言与页面样式；通过 postMessage 与宿主通信。
+  - `ZBuffer`（+192/−43）：Node `Buffer` 常用方法的兼容实现（`from` / `alloc` / `readUInt*` / `writeUInt*` / `toString` / `base64` 等）。
+- **`EsmBundler`**（+154）：`ZeppPlayer.buildScriptBody()` 的底层打包器，把项目里的 CommonJS/ESM 脚本连同 `@zeppos/zml/base-side` 兼容层打包成可直接 `new Function()` 或 `<script>` 执行的脚本体，供 app-side 与设置页共用。
 - **messaging / hmBle 模拟**（`zepp_env/MessagingMock.js`，+69）：设备侧 `messaging` 调用路由到 `AppSideManager`；没有伴随端时为空操作，旧版 `app.js` 不受影响；页面运行时销毁时自动移除监听。
 - **`SyystemEnvironment.ts`**：`createPageEnv` 注入 `messaging`，并在 `runtime.onDestroy` 上注册释放回调。
 - **播放器生命周期**（`ZeppPlayer.ts`，+45/−4）
@@ -398,6 +414,24 @@ git diff upstream/master -- <某个文件>
 | `README.md` | 改写 | 本文件（正文 + 上游原文附录） |
 | `Windows/projects/demo/preview_mi_band7.png` | 新增 | 示例项目预览图 |
 | `Windows/projects/demo/__wt2.txt` | +1 | 示例项目测试文件 |
+
+### test1 预发行增量（1.9.1）
+
+下表是本次预发行相对上一版（`f4da52c`，桌面端 1.9.0）的增量；`app/index.css` 只统计实际内容变动，不含统一行尾产生的空白差异。
+
+| 文件 | 增/删 | 说明 |
+| --- | --- | --- |
+| `Windows/src/ui_managment/AppSidePanel.js` | +267 | App-side 面板：手机壳、状态栏、空态、iframe 设置页挂载与 postMessage 桥 |
+| `Windows/src/zepp_player/appside/AppSettingsRuntime.js` | +568 | 设置页宿主：`AppSettingsPage` + 组件工厂 + `settingsStorage` + i18n + 页面样式，生成完整 HTML 文档；250px 设计宽度与等比缩放 |
+| `Windows/src/zepp_player/appside/AppSideManager.js` | +267 / −30 | 打包 `setting/index.js`、`settingSource`/`settingRevision`/`settingError` 状态、设置读写与图片资源 |
+| `Windows/src/zepp_player/appside/AppSideRuntime.js` | +260 / −65 | 对齐真实 ZeppOS 的宿主运行环境与宿主 API |
+| `Windows/src/zepp_player/appside/ZBuffer.js` | +192 / −43 | `Buffer` 兼容补全（`base64`、`read/writeUInt*` 等） |
+| `Windows/src/zepp_player/EsmBundler.js` | +154 | 项目脚本打包器与 `@zeppos/zml/base-side` 兼容层 |
+| `Windows/app/index.css` | +196 / −1 | App-side 面板、手机壳与容器查询缩放；设置页 iframe 样式 |
+| `Windows/app/index.html` | +8 | 新增 `#toggle_appside` 按钮、手机下拉项与 `#view_appside` 容器 |
+| `Windows/src/ui_managment/ToolbarManager.js` | +11 / −3 | 面板表加入 `view_appside`，与其余面板互斥切换 |
+| `Windows/src/zepp_player/i18n.js` | +22 | `toolbar.appSide` / `panel.appSide` / `appSide.*` 中英文案 |
+| `Windows/src/index.browser.js` | +2 | 初始化 `AppSidePanel` |
 
 ---
 

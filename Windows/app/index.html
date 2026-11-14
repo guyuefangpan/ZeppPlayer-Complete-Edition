@@ -38,6 +38,10 @@
                         <span class="material-symbols-outlined">account_tree</span>
                         <span data-i18n="panel.explorer">Explorer</span>
                     </button>
+                    <button type="button" class="zp-split__item" data-panel="view_appside" onclick="zpSplitPanel('view_appside')">
+                        <span class="material-symbols-outlined">phone_iphone</span>
+                        <span data-i18n="panel.appSide">App-side</span>
+                    </button>
                     <button type="button" class="zp-split__item" data-panel="code" onclick="zpSplitCode()">
                         <span class="material-symbols-outlined">code</span>
                         <span data-i18n="panel.code">Code</span>
@@ -52,6 +56,9 @@
             </span>
             <span data-i18n-title="toolbar.explorer" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_explorer" onclick="zpPanelTab('view_explorer', this)">
                 account_tree
+            </span>
+            <span data-i18n-title="toolbar.appSide" class="material-symbols-outlined bigscreen zp-desktop-only" id="toggle_appside" onclick="zpPanelTab('view_appside', this)">
+                phone_iphone
             </span>
             <!-- Narrow desktop windows turn the code preview into a modal, so
                  it needs an entry point that the phone dropdown cannot give. -->
@@ -191,6 +198,7 @@
                     </aside>
                 </div>
             </div>
+            <div id="view_appside" class="base_panel" style="display: none"></div>
         </div>
         <div class="root">
             <div id="code_panel" class="code_panel"></div>
