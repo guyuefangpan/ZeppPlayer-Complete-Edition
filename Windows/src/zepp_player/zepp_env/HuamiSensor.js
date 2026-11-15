@@ -35,6 +35,10 @@ import {ZeppNotImplementedError} from "../Errors";
         return new id(this._runtime);
     }
 
+    checkSensor(id) {
+        return typeof id === "function";
+    }
+
     id = {
         TIME: TimeSensor,
         BATTERY: BatterySensor,
@@ -55,6 +59,15 @@ import {ZeppNotImplementedError} from "../Errors";
         SLEEP: SleepSensor,
         MUSIC: MusicSensor,
         ACTIVITY: ActivitySensor,
+        ACCELEROMETER: GenericSensor,
+        GYROSCOPE: GenericSensor,
+        BAROMETER: GenericSensor,
+        COMPASS: GenericSensor,
+        GEOLOCATION: GenericSensor,
+        BUZZER: GenericSensor,
+        SCREEN: GenericSensor,
+        WORKOUT: GenericSensor,
+        MOON: GenericSensor
     }
 
     event = {
@@ -683,5 +696,57 @@ class ActivitySensor {
         return {
             displayMode: 1
         }
+    }
+}
+
+/**
+ * Fallback for sensors the simulator does not emulate yet. Keeps the official
+ * surface (subscribe/unsubscribe + getCurrent) so apps do not crash.
+ */
+class GenericSensor {
+    constructor(player) {
+        this.player = player;
+        this._listeners = {};
+    }
+
+    getCurrent() {
+        return {x: 0, y: 0, z: 0, value: 0};
+    }
+
+    getLast() {
+        return this.getCurrent();
+    }
+
+    getToday() {
+        return this.getCurrent();
+    }
+
+    getTarget() {
+        return 0;
+    }
+
+    getType() {
+        return 0;
+    }
+
+    on(event, callback) {
+        if(typeof event === "function") callback = event;
+        if(callback) this.addEventListener("change", callback);
+    }
+
+    off(event, callback) {
+        this.removeEventListener("change", callback);
+    }
+
+    addEventListener(event, callback) {
+        this._listeners[event] = callback;
+    }
+
+    removeEventListener(event) {
+        delete this._listeners[event];
+    }
+
+    setProperty(key, value) {
+        this[key] = value;
     }
 }

@@ -19,17 +19,70 @@
 export class HuamiBLEMock {
     constructor(runtime) {
         this.runtime = runtime;
+        this._receiver = null;
+
+        /* Legacy `hmBle` traffic is routed to the in-process companion, the
+         * same VirtualLink `messaging.peerSocket` uses. */
+        const mgr = this._manager();
+        if(mgr && typeof mgr.registerDeviceReceiver === "function") {
+            this._bound = (bytes) => {
+                if(!this._receiver) return;
+                try {
+                    /* The device API hands out a standalone ArrayBuffer. */
+                    const buffer = (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength)
+                        ? bytes.buffer
+                        : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+                    this._receiver(0, buffer, bytes.byteLength);
+                } catch(e) {}
+            };
+            mgr.registerDeviceReceiver(this._bound);
+        }
     }
 
-    createConnect() {}
-    disConnect() {}
-    send() {}
+    _manager() {
+        const p = this.runtime && this.runtime.player;
+        return p && p.appSideManager ? p.appSideManager : null;
+    }
+
+    createConnect(cb) {
+        this._receiver = cb;
+    }
+
+    disConnect() {
+        this._receiver = null;
+    }
+
+    send(data, length) {
+        const mgr = this._manager();
+        if(!mgr) return;
+
+        let bytes;
+        if(data instanceof ArrayBuffer) {
+            bytes = new Uint8Array(data, 0, length === undefined ? data.byteLength : length);
+        } else if(data && data.buffer instanceof ArrayBuffer) {
+            const len = length === undefined ? data.byteLength : length;
+            bytes = new Uint8Array(data.buffer, data.byteOffset || 0, len);
+        } else {
+            return;
+        }
+
+        mgr.injectFromDevice(bytes);
+    }
 
     connectStatus() {
-        return !this.runtime.getDeviceState("DISCONNECT", "boolean");
+        /* The companion (app-side service) is the phone of the simulator, so a
+         * running companion means the BLE link is up. */
+        const mgr = this._manager();
+        if(mgr && mgr.status === "running") return true;
+        if(this.runtime && typeof this.runtime.getDeviceState === "function")
+            return !this.runtime.getDeviceState("DISCONNECT", "boolean");
+        return true;
     }
 
-    addListener() {}
+    addListener(event, cb) {
+        if(event === "message") this._receiver = cb;
+    }
+
     removeListener() {}
-    
+
 }

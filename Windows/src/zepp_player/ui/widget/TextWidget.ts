@@ -23,6 +23,8 @@ export class TextWidget extends BaseWidget<TextWidgetConfig> {
             ...userConfig
         };
 
+        if(config.text === undefined || config.text === null) config.text = "";
+
         if(config.w < 0 || config.h < 0) {
             console.warn("Invalid text size provided", config, "assume they're equal zero");
             config.w = 0;

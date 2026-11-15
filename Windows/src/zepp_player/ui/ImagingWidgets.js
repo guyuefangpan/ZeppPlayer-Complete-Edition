@@ -40,7 +40,10 @@ export class ImageWidget extends BaseWidget {
             posY = config.pos_y ? config.pos_y : 0;
 
         const ctx = cnv.getContext("2d");
-        if(config.angle === undefined || config.angle === 0) {
+        if(config.auto_scale) {
+            // ZeppOS `auto_scale` stretches the image into the given box.
+            ctx.drawImage(img, 0, 0, w, h);
+        } else if(config.angle === undefined || config.angle === 0) {
             ctx.drawImage(img, posX, posY);
         } else {
             ctx.save();

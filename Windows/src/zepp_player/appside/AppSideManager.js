@@ -17,6 +17,61 @@ function joinPath(base, rel) {
     return (String(base) + "/" + String(rel)).replace(/\/+/g, "/");
 }
 
+/* The legacy `hmBle` channel (used by the MessageBuilder helper shipped with
+ * almost every ZeppOS sample) frames every packet with a 16 byte header:
+ * flag(1) version(1) type(2) port1(2) port2(2) appId(4) extra(4).
+ * On a real watch the phone firmware strips that header before handing the
+ * payload to the companion's `messaging.peerSocket`, and adds it back on the
+ * way down. Without the same translation the companion's readPayload() would
+ * treat header bytes as a traceId and every single request would be garbage. */
+const HEADER_SIZE = 16;
+const PACKET_FLAG_APP = 0x1;
+const PACKET_VERSION_1 = 0x1;
+const PACKET_SHAKE = 0x1;
+const PACKET_CLOSE = 0x2;
+const PACKET_DATA = 0x4;
+const PACKET_DATA_SYSTEM = 0x5;
+const PACKET_LOG = 0x6;
+const SIDE_PORT = 1004;
+const DEFAULT_DEVICE_PORT = 20;
+
+function toView(bytes) {
+    if (bytes instanceof Uint8Array) return bytes;
+    if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+    if (ArrayBuffer.isView(bytes)) return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return null;
+}
+
+function readPacketHeader(view) {
+    if (!view || view.length < HEADER_SIZE) return null;
+    if (view[0] !== PACKET_FLAG_APP || view[1] !== PACKET_VERSION_1) return null;
+    const type = view[2] | (view[3] << 8);
+    if (type !== PACKET_SHAKE && type !== PACKET_CLOSE && type !== PACKET_DATA
+        && type !== PACKET_DATA_SYSTEM && type !== PACKET_LOG) return null;
+    return {
+        type,
+        port1: view[4] | (view[5] << 8),
+        port2: view[6] | (view[7] << 8),
+        appId: (view[8] | (view[9] << 8) | (view[10] << 16) | (view[11] << 24)) >>> 0,
+        payload: view.subarray(HEADER_SIZE),
+    };
+}
+
+function writeHeader(out, type, port1, port2, appId) {
+    out[0] = PACKET_FLAG_APP;
+    out[1] = PACKET_VERSION_1;
+    out[2] = type & 0xff;
+    out[3] = (type >> 8) & 0xff;
+    out[4] = port1 & 0xff;
+    out[5] = (port1 >> 8) & 0xff;
+    out[6] = port2 & 0xff;
+    out[7] = (port2 >> 8) & 0xff;
+    out[8] = appId & 0xff;
+    out[9] = (appId >> 8) & 0xff;
+    out[10] = (appId >> 16) & 0xff;
+    out[11] = (appId >> 24) & 0xff;
+}
+
 export default class AppSideManager {
     constructor(player) {
         this.player = player;
@@ -25,6 +80,13 @@ export default class AppSideManager {
         );
         this.env = null;
         this.serviceDef = null;
+        this.pendingDevice = [];
+        this.pendingCompanion = [];
+        /* Set once the device app used the legacy hmBle framing, so replies can
+         * be wrapped the way the watch firmware wraps them. */
+        this.legacyFraming = false;
+        this.devicePort = DEFAULT_DEVICE_PORT;
+        this.deviceAppId = 0;
         this.enabled = false;
         this.sourceUrl = null;
         this.lastError = null;
@@ -194,6 +256,18 @@ export default class AppSideManager {
             this.lastError = e;
             this.player.onConsole("AppSide", ["start failed", e]);
         }
+
+        /* Replay what the device app sent before the companion was listening. */
+        if (this.pendingDevice.length) {
+            const backlog = this.pendingDevice;
+            this.pendingDevice = [];
+            this.player.onConsole("AppSide", ["Replaying " + backlog.length + " buffered packet(s)"]);
+            for (const bytes of backlog) {
+                try { this.env.__zbInjectPeer(bytes); } catch (e) {
+                    this.player.onConsole("AppSide", ["replay failed", e]);
+                }
+            }
+        }
         return true;
     }
 
@@ -249,18 +323,82 @@ export default class AppSideManager {
 
     // ------------------------------------------------------------ VirtualLink
     /**
-     * Device-side app -> companion. Called by MessagingMock.
+     * Device-side app -> companion. Called by MessagingMock / HuamiBLEMock.
      */
     injectFromDevice(bytes) {
-        if (!this.env) return;
-        try { this.env.__zbInjectPeer(bytes); }
+        const view = toView(bytes);
+        if (!view) return;
+
+        const packet = readPacketHeader(view);
+        /* A MessageBuilder handshake is unmistakable: type Shake with the one
+         * byte appId payload. Everything after it on that channel is framed. */
+        if (packet && packet.type === PACKET_SHAKE && packet.payload.length === 1) {
+            this.legacyFraming = true;
+            if (packet.port1) this.devicePort = packet.port1;
+            if (packet.appId) this.deviceAppId = packet.appId;
+            this._replyShake();
+            return;
+        }
+
+        if (packet && this.legacyFraming) {
+            if (packet.type === PACKET_CLOSE) return;
+            if (packet.type === PACKET_LOG) {
+                this.onConsole("device-log", [new TextDecoder().decode(packet.payload)]);
+                return;
+            }
+            this._deliverToCompanion(packet.payload);
+            return;
+        }
+
+        // Plain `messaging.peerSocket` traffic: payload only, no framing.
+        this._deliverToCompanion(view);
+    }
+
+    _deliverToCompanion(payload) {
+        if (!this.env) {
+            /* The device app boots before the companion here, so its first
+             * packets would be dropped. Keep a short backlog and replay it
+             * once app-side is running. */
+            if (this.pendingDevice.length < 64)
+                this.pendingDevice.push(payload.slice ? payload.slice() : payload);
+            return;
+        }
+        try { this.env.__zbInjectPeer(payload); }
         catch (e) { this.player.onConsole("AppSide", ["injectFromDevice failed", e]); }
+    }
+
+    /**
+     * The watch firmware answers the handshake with the side port; the device
+     * app blocks every request on that reply (`waitingShakePromise`).
+     */
+    _replyShake() {
+        const out = new Uint8Array(HEADER_SIZE + 1);
+        writeHeader(out, PACKET_SHAKE, this.devicePort, SIDE_PORT, this.deviceAppId);
+        out[HEADER_SIZE] = this.deviceAppId & 0xff;
+        this._dispatchToDevice(out);
     }
 
     /**
      * Companion -> device-side app. Called by the sandbox host bridge.
      */
     sendToDevice(bytes) {
+        const view = toView(bytes) || new Uint8Array(0);
+        this._dispatchToDevice(this.legacyFraming ? this._wrapForDevice(view) : view);
+    }
+
+    _wrapForDevice(payload) {
+        const out = new Uint8Array(HEADER_SIZE + payload.length);
+        writeHeader(out, PACKET_DATA, SIDE_PORT, SIDE_PORT, this.deviceAppId);
+        out.set(payload, HEADER_SIZE);
+        return out;
+    }
+
+    _dispatchToDevice(bytes) {
+        if (!this.deviceReceivers.size) {
+            if (this.pendingCompanion.length < 64)
+                this.pendingCompanion.push(bytes.slice ? bytes.slice() : bytes);
+            return;
+        }
         for (const fn of [...this.deviceReceivers]) {
             try { fn(bytes); } catch (e) {
                 this.player.onConsole("AppSide", ["device receiver error", e]);
@@ -268,7 +406,16 @@ export default class AppSideManager {
         }
     }
 
-    registerDeviceReceiver(fn) { this.deviceReceivers.add(fn); }
+    registerDeviceReceiver(fn) {
+        this.deviceReceivers.add(fn);
+        if (this.pendingCompanion.length) {
+            const backlog = this.pendingCompanion;
+            this.pendingCompanion = [];
+            for (const bytes of backlog) {
+                try { fn(bytes); } catch (e) {}
+            }
+        }
+    }
     unregisterDeviceReceiver(fn) { this.deviceReceivers.delete(fn); }
 
     // ------------------------------------------------------------ host bridge
@@ -350,11 +497,16 @@ export default class AppSideManager {
      * (or omitted) the manager can be restarted through {@link restart}.
      */
     async stop(keepProject) {
+        const backlog = this.pendingDevice;
         if (this.env) {
             try { await this.env.__zbStop(); } catch (e) {}
         }
         this.env = null;
         this.serviceDef = null;
+        /* While reloading the companion of the same project the device app is
+         * still running, so keep the packets it already sent. */
+        this.pendingDevice = keepProject ? backlog : [];
+        this.pendingCompanion = [];
         this.settingSource = null;
         this.settingError = null;
         this.enabled = false;
@@ -364,6 +516,22 @@ export default class AppSideManager {
             this.session = null;
             this._emitState();
         }
+    }
+
+    /**
+     * Drops everything belonging to the previous project. Must run before the
+     * new app.js boots: the device app starts sending its handshake right
+     * away, and those packets have to reach the new companion - not the
+     * sandbox of the project that was loaded before.
+     */
+    async reset() {
+        if (this._pending) {
+            try { await this._pending; } catch (e) {}
+        }
+        await this.stop();
+        this.legacyFraming = false;
+        this.devicePort = DEFAULT_DEVICE_PORT;
+        this.deviceAppId = 0;
     }
 
     async restart() {

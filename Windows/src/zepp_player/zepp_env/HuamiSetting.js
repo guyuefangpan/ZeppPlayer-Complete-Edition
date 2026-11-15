@@ -66,7 +66,13 @@ export default class HuamiSettingMock {
         ["getDateFormat", "", 0],
         ["getWeightTarget", "", 50.5],
         ["getSleepTarget", "", 8 * 60],
-        ["getWeightUnit", "", 0]
+        ["getWeightUnit", "", 0],
+        ["getDistanceUnit", "", 0],
+        ["getTemperatureUnit", "", 0],
+        ["getSystemMode", "", 0],
+        ["getAutoBrightness", "setAutoBrightness", true],
+        ["getScreenOffTime", "setScreenOffTime", 15000],
+        ["getWristFlick", "setWristFlick", true]
     ]
 
     screen_type = {
@@ -149,4 +155,39 @@ export default class HuamiSettingMock {
     getDateFormat() {
         return 0;
     }
+
+    getSystemInfo = () => {
+        const info = this.getDeviceInfo();
+        return {
+            ...info,
+            language: this.getLanguage(),
+            time_format: this.getTimeFormat(),
+            distance_unit: this.getDistanceUnit(),
+            weight_unit: this.getWeightUnit(),
+            temperature_unit: this.getTemperatureUnit()
+        }
+    }
+
+    getSettings = () => {
+        return {
+            screenAutoBright: this.getScreenAutoBright(),
+            brightness: this.getBrightness(),
+            screenOffTime: this.getScreenOffTime(),
+            distanceUnit: this.getDistanceUnit(),
+            weightUnit: this.getWeightUnit(),
+            temperatureUnit: this.getTemperatureUnit(),
+            timeFormat: this.getTimeFormat(),
+            dateFormat: this.getDateFormat()
+        }
+    }
+
+    setWakeUpRelaunch = () => 0;
+
+    setScreenOff = () => 0;
+
+    resetPageBrightTime = () => 0;
+
+    setPageBrightTime = () => 0;
+
+    setScreenKeep = () => 0;
 }

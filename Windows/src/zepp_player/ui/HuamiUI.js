@@ -39,6 +39,25 @@ import {ScrollList} from "./ScrollList";
 import {TextWidget} from "./widget/TextWidget";
 import {PolylineWidget} from "./widget/PolylineWidget";
 import {QrcodeWidget} from "./widget/QrcodeWidget";
+import {ViewContainerWidget} from "./widget/ViewContainerWidget";
+import {
+    CanvasWidget,
+    CheckboxGroupWidget,
+    CycleImageTextListWidget,
+    CycleListWidget,
+    DialogWidget,
+    KeyboardWidget,
+    ListViewWidget,
+    PageIndicatorWidget,
+    PageScrollbarWidget,
+    PickDateWidget,
+    PickerWidget,
+    SlideSwitchWidget,
+    SportDataWidget,
+    SystemKeyboardWidget,
+    TimePickerWidget,
+    VirtualContainerWidget
+} from "./widget/ExtraWidgets";
 
 export default class HuamiUIMock {
     _idCounter = 0;
@@ -75,7 +94,25 @@ export default class HuamiUIMock {
         SCROLL_LIST: ScrollList,
         RADIO_GROUP: RadioGroupWidget,
         STATE_BUTTON: StateButtonWidget,
-        QRCODE: QrcodeWidget
+        QRCODE: QrcodeWidget,
+        VIEW_CONTAINER: ViewContainerWidget,
+        CANVAS: CanvasWidget,
+        SLIDE_SWITCH: SlideSwitchWidget,
+        CHECKBOX_GROUP: CheckboxGroupWidget,
+        PAGE_INDICATOR: PageIndicatorWidget,
+        PAGE_SCROLLBAR: PageScrollbarWidget,
+        DIALOG: DialogWidget,
+        GRADIENT_POLYLINE: PolylineWidget,
+        SPORT_DATA: SportDataWidget,
+        CYCLE_LIST: CycleListWidget,
+        CYCLE_IMAGE_TEXT_LIST: CycleImageTextListWidget,
+        LIST_VIEW: ListViewWidget,
+        VIRTUAL_CONTAINER: VirtualContainerWidget,
+        PICKER: PickerWidget,
+        PICK_DATE: PickDateWidget,
+        TIME_PICKER: TimePickerWidget,
+        KEYBOARD: KeyboardWidget,
+        SYSTEM_KEYBOARD: SystemKeyboardWidget
     }
 
     constructor(runtime) {
@@ -167,18 +204,80 @@ export default class HuamiUIMock {
     updateStatusBarTitle() {}
     setScrollView() {}
 
+    addEventListener() {}
+
+    removeEventListener() {}
+
+    widgetAnimations() {}
+
+    redraw() {}
+
+    openInspector() {}
+
+    keyboard() {}
+
+    setAlpha() {}
+
+    setEnable() {}
+
+    addLayoutChild() {}
+
+    removeLayoutChild() {}
+
+    setLayoutParent() {}
+
+    updateLayout() {}
+
+    updateLayoutStyle() {}
+
+    getRtlLayout = () => false;
+
+    relayoutRtl() {}
+
+    createDialog = (options) => {
+        return this.createWidget(this.widget.DIALOG, options || {});
+    }
+
+    getId = (widget) => (widget && widget.config) ? widget.config.__id : -1;
+
+    getType = (widget) => (widget && widget.config) ? widget.config.__widget : "";
+
+    getProperty = (widget, key, second) => {
+        if(!widget || typeof widget.getProperty !== "function") return undefined;
+        return widget.getProperty(key, second);
+    }
+
+    getAppWidgetSize = () => [this.runtime.screen[0], this.runtime.screen[1]];
+
+    setAppWidgetSize() {}
+
+    getImageInfo = async (src) => {
+        try {
+            const image = await this.runtime.getAssetImage(src);
+            if(image && image.width) return {width: image.width, height: image.height};
+        } catch(e) {}
+        return {width: 0, height: 0};
+    }
+
+    /* Official layout measurement: returns the box the text would occupy when
+     * rendered with the given size/width. `_metricsOnly` makes drawText return
+     * `{width, height}` numbers instead of a canvas. */
     getTextLayout = (text, options) => {
-        const canvas = TextWidget.drawText({
-            text,
-            text_size: options.text_size,
-            w: options.text_width,
-            text_style: 2,
+        options = options || {};
+
+        const result = TextWidget.drawText({
+            text: text === undefined || text === null ? "" : String(text),
+            text_size: options.text_size || this.runtime.profileData.defaultFontSize || 18,
+            w: options.text_width || 0,
+            char_space: options.char_space || 0,
+            line_space: options.line_space || 0,
+            text_style: options.wrapped ? 2 : 0,
             _metricsOnly: true
         }, this.runtime);
 
         return {
-            width: canvas.width,
-            height: canvas.height
+            width: result && result.width ? result.width : 0,
+            height: result && result.height ? result.height : 0
         }
     }
 
@@ -212,7 +311,15 @@ export default class HuamiUIMock {
         DATASET: "dataset",
         INIT: "checked",
         CHECKED: "checked",
-        CURRENT_SELECT: "checked"
+        CURRENT_SELECT: "checked",
+        DELETE_ITEM: "delete_item",
+        ITEM_CLICK: "item_click",
+        SCROLL_TO: "scroll_to",
+        COUNT: "count",
+        CURRENT: "current",
+        CURRENT_INDEX: "current_index",
+        SCROLL_Y: "scrollY",
+        SCROLL_TO_INDEX: "scroll_to_index"
     }
 
     show_level = {

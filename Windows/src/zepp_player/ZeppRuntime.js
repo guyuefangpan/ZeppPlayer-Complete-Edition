@@ -14,6 +14,7 @@ export default class ZeppRuntime {
     onInitParam = null;
 
     uiPause = false;
+    activeZone = null;
     refresh_required = "";
     animMaxFPS = false;
     onStateChanged = new MiniSignal();
@@ -174,6 +175,7 @@ export default class ZeppRuntime {
         this.onDestroy = [];
         this.widgets = [];
         this.events = [];
+        this.activeZone = null;
         this.module = null;
         this.env = null;
         this.initTime = null;
@@ -190,12 +192,30 @@ export default class ZeppRuntime {
         if(this.rootEventHandler[name])
             this.rootEventHandler[name](info);
 
+        /* Pointer capture: the widget that received the press keeps receiving
+         * move/release even when the finger leaves its box, exactly like on a
+         * real watch. Without it buttons stay stuck in the pressed state. */
+        if(name === "onmousemove" || name === "onmouseup") {
+            const zone = this.activeZone;
+            if(name === "onmouseup") this.activeZone = null;
+            if(zone && zone.events && typeof zone.events[name] === "function") {
+                zone.events[name](info);
+                return;
+            }
+        }
+
+        /* Hit-test from the topmost zone downwards. A zone only consumes the
+         * event if it actually has a handler for it; decorative widgets (e.g.
+         * TEXT drawn over a button) must not swallow clicks meant for widgets
+         * lying underneath. */
         for(let i = this.events.length-1; i >= 0; i--) {
             const data = this.events[i];
             if(data.x1 < x && x < data.x2 && data.y1 < y && y < data.y2) {
-                if(data.events[name])
+                if(data.events && typeof data.events[name] === "function") {
+                    if(name === "onmousedown") this.activeZone = data;
                     data.events[name](info);
-                return;
+                    return;
+                }
             }
         }
 

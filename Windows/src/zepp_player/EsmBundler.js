@@ -31,7 +31,12 @@ const SYS_MODULES = {
     "@zos/ble": `(typeof hmBle !== "undefined" ? hmBle : {})`,
     "@zos/interaction": `(typeof hmUI !== "undefined" ? hmUI : {})`,
     "@zos/page": `__zp_page`,
-    "@zos/storage": `{ localStorage: __zp_local_storage, LocalStorage: __zp_LocalStorage }`,
+    "@zos/storage": `{ localStorage: __zp_local_storage, LocalStorage: __zp_LocalStorage, TypedStorage: __zp_TypedStorage, sessionStorage: __zp_local_storage }`,
+    "@zos/share-storage": `__zp_share_storage`,
+    "@zos/crypto": `__zp_crypto`,
+    "@zos/user": `__zp_user`,
+    "@zos/app-access": `__zp_app_access`,
+    "@zos/transfer-file": `{ TransferFile: __zp_TransferFile }`,
     "@zos/i18n": `{ getText: __zp_gettext, gettext: __zp_gettext }`,
     "@zos/notification": `{}`,
     "@zos/app-service": `{}`,
@@ -211,12 +216,13 @@ function buildImportClause(clause, requireExpr, counter) {
 
 function collectSpecifiers(src) {
     const specs = new Set();
-    const fromRe = /(?:^|[\n;])[ \t]*import[ \t]+[\s\S]*?[ \t]+from[ \t]*(['"])([^'"\n]+)\1/g;
+    const fromRe = /(?:^|[\n;])[ \t]*import[ \t]+((?:[^'"\n]|\{[^}]*\})*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\2/g;
     const sideRe = /(?:^|[\n;])[ \t]*import[ \t]*(['"])([^'"\n]+)\1/g;
     const exportFromRe = /(?:^|[\n;])[ \t]*export[ \t]*(?:\*|\{[\s\S]*?\})[ \t]*from[ \t]*(['"])([^'"\n]+)\1/g;
 
     let m;
-    while ((m = fromRe.exec(src))) specs.add(m[2]);
+    /* fromRe: (1) clause (2) quote (3) spec */
+    while ((m = fromRe.exec(src))) specs.add(m[3]);
     while ((m = sideRe.exec(src))) specs.add(m[2]);
     while ((m = exportFromRe.exec(src))) specs.add(m[2]);
     return Array.from(specs);
@@ -228,7 +234,11 @@ function transformModule(src, exprFor) {
     const exported = [];
     const counter = {value: 0};
 
-    src = src.replace(/(^|[\n;])([ \t]*)import[ \t]+([\s\S]*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\4[ \t]*;?/g,
+    /* The import clause may wrap lines only inside `{ ... }`. Allowing a bare
+     * newline here made the match swallow a preceding side-effect import
+     * (`import './buffer'`), which silently dropped the following named
+     * imports (`import { EventBus } from './event'`). */
+    src = src.replace(/(^|[\n;])([ \t]*)import[ \t]+((?:[^'"\n]|\{[^}]*\})*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\4[ \t]*;?/g,
         (match, lead, indent, clause, q, spec) =>
             lead + indent + buildImportClause(clause, exprFor(spec), counter));
 
@@ -366,13 +376,33 @@ function __zp_storage_key(__zp_k) {
     return "__zp_ls:" + __zp_project_scope + ":" + String(__zp_k);
 }
 
+/* Official LocalStorage keeps JSON values, not just strings: apps store
+ * arrays/objects directly and expect them back after a page switch. Raw
+ * strings saved by older builds are still decoded correctly. */
+function __zp_lsDecode(__zp_raw, __zp_default) {
+    if (__zp_raw === null || __zp_raw === undefined) return __zp_default;
+    try {
+        return JSON.parse(__zp_raw);
+    } catch (e) {
+        return __zp_raw;
+    }
+}
+
 function __zp_LocalStorage() {
-    this.getItem = function (__zp_k) {
-        try { return window.localStorage.getItem(__zp_storage_key(__zp_k)); } catch (e) { return null; }
+    this.getItem = function (__zp_k, __zp_default) {
+        let __zp_raw = null;
+        try { __zp_raw = window.localStorage.getItem(__zp_storage_key(__zp_k)); } catch (e) {}
+        return __zp_lsDecode(__zp_raw, __zp_default);
     };
     this.setItem = function (__zp_k, __zp_v) {
         try {
-            window.localStorage.setItem(__zp_storage_key(__zp_k), __zp_v === undefined || __zp_v === null ? "" : String(__zp_v));
+            let __zp_text;
+            try {
+                __zp_text = JSON.stringify(__zp_v);
+            } catch (e) {
+                __zp_text = String(__zp_v);
+            }
+            window.localStorage.setItem(__zp_storage_key(__zp_k), __zp_text === undefined ? "" : __zp_text);
         } catch (e) {}
     };
     this.removeItem = function (__zp_k) {
@@ -410,8 +440,11 @@ const __zp_local_storage = new __zp_LocalStorage();
 const __zp_router = {
     push: function (__zp_conf) {
         try {
+            __zp_conf = __zp_conf || {};
+            /* @zos/router calls it params, hmApp.gotoPage calls it param. */
+            const __zp_param = __zp_conf.params !== undefined ? __zp_conf.params : __zp_conf.param;
             if (typeof hmApp !== "undefined" && hmApp.gotoPage) {
-                hmApp.gotoPage({url: (__zp_conf || {}).url, param: (__zp_conf || {}).param});
+                hmApp.gotoPage({url: __zp_conf.url, param: __zp_param});
             }
         } catch (e) {}
     },
@@ -420,6 +453,19 @@ const __zp_router = {
     home: function () { try { if (typeof hmApp !== "undefined" && hmApp.gotoHome) hmApp.gotoHome(); } catch (e) {} },
     relaunch: function () { try { if (typeof hmApp !== "undefined" && hmApp.reloadPage) hmApp.reloadPage({url: ""}); } catch (e) {} },
     getPages: function () { return []; },
+    exit: function () { try { if (typeof hmApp !== "undefined" && hmApp.exit) hmApp.exit(); } catch (e) {} },
+    launchApp: function (__zp_conf) {
+        try {
+            __zp_conf = __zp_conf || {};
+            if (typeof hmApp !== "undefined" && hmApp.gotoPage) {
+                hmApp.gotoPage({url: __zp_conf.url, param: __zp_conf.params});
+            }
+        } catch (e) {}
+    },
+    getAppIdByName: function () { return 0; },
+    checkSystemApp: function () { return false; },
+    setLaunchAppTimeout: function () { return 0; },
+    clearLaunchAppTimeout: function () { return 0; },
 };
 
 /* ---------------------------- @zos/page --------------------------------
@@ -434,7 +480,196 @@ const __zp_page = {
     resetDropWristScreenOff: function () {},
     setStatusBarVisible: function () {},
     setNavigationBarVisible: function () {},
+    scrollTo: function (__zp_conf) {
+        try {
+            __zp_conf = __zp_conf || {};
+            if (typeof hmUI !== "undefined" && hmUI.setScrollView) {
+                hmUI.setScrollView(true, __zp_conf.y || 0, 1);
+            }
+        } catch (e) {}
+    },
+    getScrollTop: function () { return 0; },
+    setScrollMode: function () {},
+    getSwiperIndex: function () { return 0; },
+    swipeToIndex: function () {},
 };
+
+/* ---------------------------- @zos/user -------------------------------- */
+const __zp_user = {
+    getProfile: function () {
+        try {
+            if (typeof hmSetting !== "undefined" && hmSetting.getUserData) return hmSetting.getUserData();
+        } catch (e) {}
+        return {age: 20, height: 180, weight: 55.5, gender: 0, nickName: "", region: "cn"};
+    },
+    addHealthData: function () { return true; },
+    getStep: function () { return 0; },
+};
+
+/* ------------------------- @zos/app-access ----------------------------- */
+const __zp_app_access = {
+    getSportData: function () { return {}; },
+    getPackageInfo: function () { return {appId: 0, appName: "", version: "1.0.0"}; },
+    getAppInfo: function () { return {appId: 0, appName: ""}; },
+};
+
+/* --------------------------- @zos/storage ------------------------------ */
+function __zp_TypedStorage(__zp_conf) {
+    __zp_conf = __zp_conf || {};
+    const __zp_ns = __zp_conf.name || __zp_conf.namespace || "typed";
+    const __zp_inner = new __zp_LocalStorage();
+    const __zp_prefix = __zp_ns + ":";
+    this.setItem = function (__zp_k, __zp_v) { __zp_inner.setItem(__zp_prefix + __zp_k, __zp_v); };
+    this.getItem = function (__zp_k, __zp_def) { return __zp_inner.getItem(__zp_prefix + __zp_k, __zp_def); };
+    this.removeItem = function (__zp_k) { __zp_inner.removeItem(__zp_prefix + __zp_k); };
+    this.clear = function () {
+        const __zp_keys = this.getAllKeys();
+        for (let __zp_i = 0; __zp_i < __zp_keys.length; __zp_i++) this.removeItem(__zp_keys[__zp_i]);
+    };
+    this.getAllKeys = function () {
+        return __zp_inner.getAllKeys()
+            .filter(function (__zp_k) { return __zp_k.indexOf(__zp_prefix) === 0; })
+            .map(function (__zp_k) { return __zp_k.substring(__zp_prefix.length); });
+    };
+}
+
+const __zp_share_storage = {
+    LocalStorage: __zp_LocalStorage,
+    TypedStorage: __zp_TypedStorage,
+    FileSystem: (typeof hmFS !== "undefined" ? hmFS : null),
+    getSharedLocalStorage: function () { return __zp_local_storage; },
+};
+
+/* ---------------------------- @zos/crypto ------------------------------
+ * The simulator only needs the calls to exist and to round-trip their own
+ * output, so a lightweight XOR "cipher" and FNV based digest are used. */
+function __zp_toBytes(__zp_input) {
+    if (__zp_input === null || __zp_input === undefined) return new Uint8Array(0);
+    if (typeof __zp_input === "string") {
+        if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(__zp_input);
+        const __zp_out = new Uint8Array(__zp_input.length);
+        for (let __zp_i = 0; __zp_i < __zp_input.length; __zp_i++) __zp_out[__zp_i] = __zp_input.charCodeAt(__zp_i) & 0xff;
+        return __zp_out;
+    }
+    if (typeof __zp_input === "object" && __zp_input.buffer) {
+        return new Uint8Array(__zp_input.buffer, __zp_input.byteOffset || 0, __zp_input.byteLength);
+    }
+    try {
+        return new Uint8Array(__zp_input);
+    } catch (e) {
+        return new Uint8Array(0);
+    }
+}
+
+function __zp_unwrap(__zp_data) {
+    if (__zp_data && typeof __zp_data === "object" && __zp_data.data !== undefined) return __zp_data.data;
+    return __zp_data;
+}
+
+function __zp_xorBytes(__zp_input, __zp_key) {
+    const __zp_src = __zp_toBytes(__zp_input);
+    const __zp_keyBytes = __zp_toBytes(__zp_key === undefined || __zp_key === null ? "" : __zp_key);
+    const __zp_out = new Uint8Array(__zp_src.length);
+    for (let __zp_i = 0; __zp_i < __zp_src.length; __zp_i++) {
+        __zp_out[__zp_i] = __zp_src[__zp_i] ^ (__zp_keyBytes.length ? __zp_keyBytes[__zp_i % __zp_keyBytes.length] : 0);
+    }
+    return __zp_out;
+}
+
+function __zp_AESCrypto(__zp_conf) {
+    __zp_conf = __zp_conf || {};
+    const __zp_key = __zp_conf.key !== undefined ? __zp_conf.key : (__zp_conf.secretKey || __zp_conf.iv || "");
+    this.encrypt = function (__zp_data) { return __zp_xorBytes(__zp_unwrap(__zp_data), __zp_key); };
+    this.decrypt = function (__zp_data) { return __zp_xorBytes(__zp_unwrap(__zp_data), __zp_key); };
+}
+
+function __zp_digestHex(__zp_input) {
+    const __zp_src = __zp_toBytes(__zp_unwrap(__zp_input));
+    let __zp_h = 2166136261;
+    let __zp_out = "";
+    for (let __zp_round = 0; __zp_round < 4; __zp_round++) {
+        for (let __zp_i = 0; __zp_i < __zp_src.length; __zp_i++) {
+            __zp_h ^= __zp_src[__zp_i] + __zp_round;
+            __zp_h = Math.imul(__zp_h, 16777619) >>> 0;
+        }
+        __zp_out += ("0000000" + __zp_h.toString(16)).slice(-8);
+    }
+    return __zp_out;
+}
+
+function __zp_DigestCrypto() {
+    this.create = function () {
+        return {
+            digest: function (__zp_data) { return __zp_digestHex(__zp_data); },
+            update: function () { return this; },
+            reset: function () {},
+        };
+    };
+    this.digest = function (__zp_data) { return __zp_digestHex(__zp_data); };
+}
+
+function __zp_CRCCrypto() {
+    this.create = function () {
+        return {
+            calc: function (__zp_data) {
+                const __zp_src = __zp_toBytes(__zp_unwrap(__zp_data));
+                let __zp_crc = 0xffffffff;
+                for (let __zp_i = 0; __zp_i < __zp_src.length; __zp_i++) {
+                    __zp_crc ^= __zp_src[__zp_i];
+                    for (let __zp_b = 0; __zp_b < 8; __zp_b++) {
+                        __zp_crc = (__zp_crc >>> 1) ^ (__zp_crc & 1 ? 0xedb88320 : 0);
+                    }
+                }
+                return (__zp_crc ^ 0xffffffff) >>> 0;
+            },
+        };
+    };
+    this.calc = function (__zp_data) { return this.create().calc(__zp_data); };
+}
+
+function __zp_ECDSACrypto(__zp_conf) {
+    __zp_conf = __zp_conf || {};
+    this.sign = function (__zp_data) { return __zp_digestHex(__zp_data); };
+    this.verify = function () { return true; };
+    this.getPublicKey = function () { return __zp_conf.publicKey || ""; };
+}
+
+const __zp_crypto = {
+    AESCrypto: __zp_AESCrypto,
+    DigestCrypto: __zp_DigestCrypto,
+    CRCCrypto: __zp_CRCCrypto,
+    ECDSACrypto: __zp_ECDSACrypto,
+    Digest: {MD5: 0, SHA1: 1, SHA256: 2},
+    CRC: {CRC16: 0, CRC32: 1},
+    AES: {CBC: 0, ECB: 1, CTR: 2},
+    encryptKey: function (__zp_key) { return String(__zp_key === undefined ? "" : __zp_key); },
+    getRandomValues: function (__zp_array) {
+        try {
+            if (typeof crypto !== "undefined" && crypto.getRandomValues) return crypto.getRandomValues(__zp_array);
+        } catch (e) {}
+        for (let __zp_i = 0; __zp_i < __zp_array.length; __zp_i++) {
+            __zp_array[__zp_i] = Math.floor(Math.random() * 256);
+        }
+        return __zp_array;
+    },
+};
+
+/* ------------------------- @zos/transfer-file -------------------------- */
+function __zp_TransferFile(__zp_conf) {
+    this.conf = __zp_conf || {};
+    this.listeners = {};
+    this.init = function () { return 0; };
+    this.send = function (__zp_data, __zp_cb) {
+        if (typeof __zp_cb === "function") __zp_cb({success: false});
+        return 0;
+    };
+    this.start = function (__zp_data, __zp_cb) { return this.send(__zp_data, __zp_cb); };
+    this.cancel = function () { return 0; };
+    this.on = function (__zp_event, __zp_cb) { this.listeners[__zp_event] = __zp_cb; };
+    this.off = function (__zp_event) { delete this.listeners[__zp_event]; };
+    this.getProgress = function () { return 0; };
+}
+
 
 /* --------------------------- @zeppos/zml/base-app ------------------------ */
 function __zp_base_app(__zp_cfg) {

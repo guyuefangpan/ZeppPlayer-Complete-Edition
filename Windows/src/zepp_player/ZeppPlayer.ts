@@ -219,6 +219,9 @@ export default abstract class ZeppPlayer {
         this.config.renderScroll = 0;
 
         await this._loadAppConfig();
+        /* app.js connects to its companion during boot, so the previous
+         * companion has to be gone before that happens. */
+        await this.appSideManager.reset();
         await this._loadAppJs();
         await this.overlayTool.init();
         await this.preloadProjectAssets(path + "/");

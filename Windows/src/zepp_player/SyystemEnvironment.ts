@@ -70,8 +70,16 @@ export class AppEnvironment {
     hmApp: HmApp;
     hmFS: HuamiFsMock;
     hmSetting: HuamiSettingMock;
+    hmUI: any;
+    hmBle: any;
+    messaging: any;
+    hmSensor: any;
+    timer: any;
+    console: any;
+    Logger: any;
     DeviceRuntimeCore: DeviceRuntimeCoreMock;
     App: (config: any) => any;
+    getApp: () => any;
     px: (v: number) => number;
     __zp_screen_width: number;
     __zp_design_width: number;
@@ -93,7 +101,26 @@ export class AppEnvironment {
         this.hmApp = new HmApp(player);
         this.hmSetting = new HuamiSettingMock(player);
         this.hmFS = new HuamiFsMock(player);
+        /* app.js runs against the same device globals as a page. The mocks are
+         * built on a small shell that exposes what they need from a runtime
+         * (`player`, lifecycle hooks) before any page runtime exists. */
+        const shell: any = {
+            player,
+            onDestroy: [],
+            widgets: [],
+            events: [],
+            refresh_required: ""
+        };
+        this.hmUI = new HuamiUIMock(shell);
+        this.hmBle = new HuamiBLEMock(shell);
+        this.messaging = new MessagingMock(shell);
+        this.hmSensor = new HuamiSensorMock(shell);
+        this.timer = new TimerMock(shell);
+        this.console = new ConsoleMock(shell, console);
         this.DeviceRuntimeCore = new DeviceRuntimeCoreMock(player, this.__$$hmAppManager$$__);
+        /* `Logger` is a built-in global on device; SDKs (shared/logger.js, the
+         * MessageBuilder) use `Logger.getLogger(...)` directly in app.js. */
+        this.Logger = this.DeviceRuntimeCore.HmLogger;
         /* Official templates call the bare `App(...)` global; compiled
          * packages assign `DeviceRuntimeCore.App(...)` themselves. */
         this.App = (config: any) => {
@@ -101,6 +128,8 @@ export class AppEnvironment {
             this.__$$hmAppManager$$__.currentApp.app = app;
             return app;
         };
+        /* ZeppOS global `getApp()` returns the object registered via `App()`. */
+        this.getApp = () => this.__$$hmAppManager$$__.currentApp.app;
         this.__zp_screen_width = player.profileData.screenWidth;
         this.__zp_design_width = designWidthOf(player);
         this.px = makePx(this.__zp_screen_width, this.__zp_design_width);
@@ -137,6 +166,8 @@ export function createPageEnv(runtime: ZeppRuntime, appRuntime: AppEnvironment) 
     object.Logger = object.DeviceRuntimeCore.HmLogger;
     object.WatchFace = (conf: any) => object.DeviceRuntimeCore.WatchFace(conf);
     object.Page = (conf: any) => object.DeviceRuntimeCore.Page(conf);
+    /* Same `getApp()` contract as the app-level environment. */
+    object.getApp = () => appRuntime.__$$hmAppManager$$__.currentApp.app;
 
     // Translations declared in app.json, used by `@zos/i18n`
     object.__zp_i18n = appI18nTable(runtime.player);

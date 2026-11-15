@@ -29,19 +29,60 @@ export class ButtonWidget extends BaseWidget {
     constructor(config) {
         super(config);
         this.pressed = false;
+        this._longPressTimer = null;
+        this._longPressFired = false;
         config.alpha = undefined;
+
+        const longPressDelay = typeof config.longpress_time === "number"
+            ? config.longpress_time : 600;
 
         this.addEventListener("onmousedown", () => {
             this.pressed = true;
+            this._longPressFired = false;
+
+            // HmUI buttons emit longpress_func while the finger is held down.
+            if(config.longpress_func) {
+                this._longPressTimer = setTimeout(() => {
+                    this._longPressTimer = null;
+                    const rt = config.__runtime;
+                    if(!rt || rt.widgets.indexOf(this) < 0) return;
+                    this._longPressFired = true;
+                    try {
+                        config.longpress_func(this);
+                    } catch(e) {
+                        console.warn("Button longpress_func failed", e);
+                    }
+                }, longPressDelay);
+            }
+
             config.__runtime.refresh_required = "button"; // we changed color/bg
         });
         this.addEventListener("onmouseup", (info) => {
+            this._clearLongPress();
             this.pressed = false;
             config.__runtime.refresh_required = "button"; // we changed color/bg
-            if(config.click_func) config.click_func(this);
+            if(this._longPressFired) return;
+            // Like on a real watch, releasing outside of the button cancels it.
+            if(config.click_func && this._isInside(info)) config.click_func(this);
         });
 
         this.addEventListener = () => {}; // ignore other events
+    }
+
+    _clearLongPress() {
+        if(this._longPressTimer) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
+    }
+
+    _isInside(info) {
+        const zone = this.positionInfo;
+        if(!info || typeof info.x !== "number" || !zone) return true;
+        const scroll = this.config.__runtime.player.config.renderScroll || 0;
+        const y = info.y + scroll;
+        return info.x >= zone[0] && info.x <= zone[2]
+            && y >= zone[1] && y <= zone[3];
     }
 
     async render(canvas, player) {
@@ -50,13 +91,24 @@ export class ButtonWidget extends BaseWidget {
         const h = config.h ? config.h : 0;
 
         if(config.press_src && config.normal_src) {
-            // Img bg
+            // Img bg: on a real device the background picture fills the whole
+            // button box, so it must be stretched to w/h as well.
             const src = this.pressed ? config.press_src : config.normal_src;
             const img = await player.getAssetImage(src);
-            ImageWidget.draw(img, canvas, player, {
-                x: config.x + Math.max(0, (w - img.width) / 2),
-                y: config.y + Math.max(0, (h - img.height) / 2)
-            });
+            if(w > 0 && h > 0) {
+                ImageWidget.draw(img, canvas, player, {
+                    x: config.x,
+                    y: config.y,
+                    w: w,
+                    h: h,
+                    auto_scale: true
+                });
+            } else {
+                ImageWidget.draw(img, canvas, player, {
+                    x: config.x + Math.max(0, (w - img.width) / 2),
+                    y: config.y + Math.max(0, (h - img.height) / 2)
+                });
+            }
         } else {
             const normalColor = config.normal_color ? zeppColorToHex(config.normal_color) : "#000000";
             const pressedColor = config.press_color ? zeppColorToHex(config.press_color) : "#CCCCCC";
@@ -68,13 +120,15 @@ export class ButtonWidget extends BaseWidget {
             }, "fill", player);
         }
 
-        const textLayer = await TextWidget.drawText({
-            ...config,
-            align_h: "center_h",
-            align_v: "center_v",
-            color: config.color !== undefined ? config.color : 0xffffff
-        }, player);
-        canvas.getContext("2d").drawImage(textLayer, config.x, config.y);
+        if(config.text !== undefined && config.text !== "") {
+            const textLayer = await TextWidget.drawText({
+                ...config,
+                align_h: "center_h",
+                align_v: "center_v",
+                color: config.color !== undefined ? config.color : 0xffffff
+            }, player);
+            canvas.getContext("2d").drawImage(textLayer, config.x, config.y);
+        }
 
         this.dropEvents(player, [
             config.x,

@@ -185,7 +185,10 @@ export default class VideoRecorder {
 
         const frame = await loadFrame();
         const ratio = display.width / display.height;
-        const source = (frame && Math.abs(ratio - HOLE_RATIO) <= 0.03)
+        /* The product photo was shot for Mi Band 7 only, so it must never be
+         * reused for another device even if the aspect ratio happens to match. */
+        const frameAllowed = this.player && this.player.profileName === "mi_band7";
+        const source = (frame && frameAllowed && Math.abs(ratio - HOLE_RATIO) <= 0.03)
             ? this._buildComposite(display, frame)
             : display;
 

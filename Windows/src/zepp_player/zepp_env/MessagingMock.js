@@ -26,13 +26,18 @@ export class MessagingMock {
             },
             send: (data) => this.send(data),
             __receive: (bytes) => {
+                /* ZeppOS delivers `{ data: ArrayBuffer }`; hand out a standalone
+                 * buffer so slicing / Buffer.from() on the app side is safe. */
+                const buffer = (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength)
+                    ? bytes.buffer
+                    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
                 for (const cb of messageListeners.slice()) {
-                    try { cb({ data: bytes }); } catch (e) {
+                    try { cb({ data: buffer }); } catch (e) {
                         this.runtime.player.onConsole("error", ["peerSocket listener error", e]);
                     }
                 }
                 if (typeof peerSocket.onmessage === "function") {
-                    try { peerSocket.onmessage({ data: bytes }); } catch (e) {}
+                    try { peerSocket.onmessage({ data: buffer }); } catch (e) {}
                 }
             }
         };
@@ -55,7 +60,8 @@ export class MessagingMock {
         const bytes = this._toBytes(data);
         const mgr = this._manager();
         if (!mgr) return;
-        if (!mgr.enabled) return;
+        /* When the companion is still booting the manager keeps the packet in
+         * its backlog instead of dropping it. */
         mgr.injectFromDevice(bytes);
     }
 

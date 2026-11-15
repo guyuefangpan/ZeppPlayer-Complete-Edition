@@ -17,6 +17,7 @@
 */
 
 import {TextWidget} from "../ui/widget/TextWidget";
+import {Buffer} from "buffer";
 
 class HmUtilsMock {
     constructor(runtime, currentAppContext) {
@@ -55,6 +56,10 @@ class HmUtilsMock {
 
 export default class DeviceRuntimeCoreMock {
     version = "1.0.1-zepp-player";
+
+    /* ZeppOS ships a Node-like Buffer implementation on DeviceRuntimeCore and
+     * many SDKs (MessageBuilder, i18n packs) use it for binary payloads. */
+    Buffer = Buffer;
 
     constructor(runtime, placement) {
         this.runtime = runtime;

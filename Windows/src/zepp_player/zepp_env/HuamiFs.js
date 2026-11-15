@@ -198,4 +198,123 @@ export default class HuamiFsMock {
     SysProSetInt(key, val) {
         this.runtime.persistent.set("SysProRegistery", key, val);
     }
+
+    /* ------------------- @zos/fs 2.x (sync) compatibility -------------------
+     * ZeppOS 3 exposes a synchronous, object-argument based fs API. The legacy
+     * positional API above is kept as-is and reused here through a descriptor
+     * table so both call styles work. */
+    _fdTable = {};
+    _fdCounter = 1;
+
+    _conf(first, second) {
+        if(first !== null && typeof first === "object") return first;
+        return {path: first, flag: second};
+    }
+
+    _v2stat(path) {
+        const result = this._performStat(normalize(path));
+        const info = result[0];
+        if(!info) return null;
+        const out = {
+            size: info.size,
+            mode: info.mode,
+            mtime: info.mtime,
+            isFile: () => info.mode >= 32768,
+            isDirectory: () => info.mode < 32768
+        };
+        return out;
+    }
+
+    statSync(arg) {
+        const conf = this._conf(arg);
+        const path = conf.path;
+        if(conf.isAsset) return this._v2stat(`/storage/${this.appTypeDirName}/${this.appDirName}/assets/${path}`);
+        return this._v2stat(this.getDataFilePath(path));
+    }
+
+    statAssetsSync(arg) {
+        const conf = this._conf(arg);
+        return this._v2stat(`/storage/${this.appTypeDirName}/${this.appDirName}/assets/${conf.path}`);
+    }
+
+    openSync(arg, flag) {
+        const conf = this._conf(arg, flag);
+        const file = this._performOpen(
+            normalize(this.getDataFilePath(conf.path)),
+            conf.flag === undefined ? this.O_RDONLY : conf.flag
+        );
+        if(!file || !file.data) return {fd: -1};
+        const fd = this._fdCounter++;
+        this._fdTable[fd] = file;
+        return {fd, path: file.path};
+    }
+
+    openAssetsSync(arg, flag) {
+        const conf = this._conf(arg, flag);
+        const file = this._performOpen(
+            normalize(`/storage/${this.appTypeDirName}/${this.appDirName}/assets/${conf.path}`),
+            conf.flag === undefined ? this.O_RDONLY : conf.flag
+        );
+        if(!file || !file.data) return {fd: -1};
+        const fd = this._fdCounter++;
+        this._fdTable[fd] = file;
+        return {fd, path: file.path};
+    }
+
+    closeSync(arg) {
+        const conf = this._conf(arg);
+        if(conf.fd !== undefined) delete this._fdTable[conf.fd];
+        return 0;
+    }
+
+    readSync(arg) {
+        const conf = this._conf(arg);
+        const file = this._fdTable[conf.fd];
+        if(!file) return {bytesRead: 0};
+        const length = conf.length || (conf.buffer ? conf.buffer.byteLength - (conf.offset || 0) : 0);
+        this.read(file, conf.buffer, conf.offset || 0, length);
+        return {bytesRead: length};
+    }
+
+    writeSync(arg) {
+        const conf = this._conf(arg);
+        const file = this._fdTable[conf.fd];
+        if(!file) return {bytesWritten: 0};
+        const length = conf.length || conf.buffer.byteLength;
+        this.write(file, conf.buffer, conf.offset || 0, length);
+        return {bytesWritten: length};
+    }
+
+    readdirSync(arg) {
+        const conf = this._conf(arg);
+        return this.readdir(conf.path)[0] || [];
+    }
+
+    mkdirSync() {
+        return 0;
+    }
+
+    rmSync(arg) {
+        const conf = this._conf(arg);
+        return this.remove(conf.path);
+    }
+
+    renameSync(arg) {
+        const conf = this._conf(arg);
+        return this.rename(conf.path, conf.newPath || conf.new_path);
+    }
+
+    readFileSync(arg) {
+        const conf = this._conf(arg);
+        const file = this.getFile(normalize(this.getDataFilePath(conf.path)));
+        if(!file || file === CONSTANT_FOLDER) return new ArrayBuffer(0);
+        return file;
+    }
+
+    writeFileSync(arg) {
+        const conf = this._conf(arg);
+        const path = normalize(this.getDataFilePath(conf.path));
+        this.vfs[path] = conf.data || conf.buffer || new ArrayBuffer(0);
+        return 0;
+    }
 }
