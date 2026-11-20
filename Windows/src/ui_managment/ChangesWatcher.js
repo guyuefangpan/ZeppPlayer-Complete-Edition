@@ -3,6 +3,7 @@ import AppSettingsManager from "./AppSettingsManager";
 export class ChangesWatcher {
     static lastChangesCount = "";
     static suppressUntil = 0;
+    static restarting = false;
 
     /**
      * Temporarily ignore file-change notifications. Used after a manual save
@@ -21,10 +22,19 @@ export class ChangesWatcher {
             const changed = await ChangesWatcher.isChanged();
             if(!changed) return;
             if(Date.now() < ChangesWatcher.suppressUntil) return;
+            /* A save often bumps the counter more than once (write + rename).
+             * Restarting again while the first restart is still running made
+             * the preview flicker, so overlapping runs are skipped and the
+             * counter is re-synced afterwards. */
+            if(ChangesWatcher.restarting) return;
+            ChangesWatcher.restarting = true;
             try {
                 await player.restart();
+                await ChangesWatcher.isChanged();
             } catch(e) {
                 console.warn("Auto restart failed", e);
+            } finally {
+                ChangesWatcher.restarting = false;
             }
         }, 2500);
     }

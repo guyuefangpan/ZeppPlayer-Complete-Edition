@@ -142,8 +142,40 @@ export class MissingWidget extends ImageWidget {
 
     async render(a, b) {
         await super.render(a, b);
+
+        /* Drawing a red dashed box makes an unsupported widget obvious in the
+         * preview instead of silently leaving an empty area. */
+        const canvas = a;
+        const ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+        if(ctx) {
+            const x = this.config.x || 0;
+            const y = this.config.y || 0;
+            const w = this.config.w || Math.max(canvas.width - x, 8);
+            const h = this.config.h || Math.max(canvas.height - y, 8);
+            const label = "?" + (this.config.__widget || "UNKNOWN");
+
+            ctx.save();
+            ctx.strokeStyle = "#ff3b30";
+            ctx.fillStyle = "rgba(255,59,48,0.12)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeRect(x + 0.5, y + 0.5, Math.max(w - 1, 1), Math.max(h - 1, 1));
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#ff3b30";
+            ctx.font = "12px system-ui, sans-serif";
+            ctx.textBaseline = "top";
+            ctx.fillText(label, x + 3, y + 3);
+            ctx.restore();
+        }
+
         if(!this.flag) {
             console.warn("Widget missing", this.config);
+            if(this.config.__runtime && this.config.__runtime.onConsole) {
+                this.config.__runtime.onConsole("SystemWarning", [
+                    "Unsupported widget: " + (this.config.__widget || "UNKNOWN")
+                ]);
+            }
             this.flag = true;
         }
     }

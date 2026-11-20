@@ -1,6 +1,6 @@
 {
   "name": "zeppplayer",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Unofficial ZeppOS emulator",
   "main": "electron_main.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "cli:build": "esbuild --bundle --platform=node --external:canvas --outdir=app src/index.cli.js",
     "browser:watch": "esbuild --bundle --outdir=app src/index.browser.js --watch",
     "build": "npm run browser:build && npm run cli:build",
+    "smoke": "node scripts/smoke.js",
     "dist:x64": "npm run browser:build && electron-builder --win --x64",
     "dist:ia32": "npm run browser:build && electron-builder --win --ia32",
     "dist": "npm run browser:build && electron-builder --win --x64 --ia32"

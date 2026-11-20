@@ -85,4 +85,17 @@ export class HuamiBLEMock {
 
     removeListener() {}
 
+    /**
+     * Unregisters the companion -> device receiver. Without this every page
+     * runtime left a closure inside AppSideManager.deviceReceivers, so after a
+     * few page switches a single reply was delivered many times over.
+     */
+    dispose() {
+        const mgr = this._manager();
+        if(mgr && this._bound) {
+            mgr.unregisterDeviceReceiver(this._bound);
+            this._bound = null;
+        }
+        this._receiver = null;
+    }
 }

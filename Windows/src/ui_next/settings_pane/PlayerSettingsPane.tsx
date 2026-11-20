@@ -10,6 +10,13 @@ import {SettingsListItem} from "./SettingsListItem";
 import {HuamiAccountItem} from "./HuamiAccountItem";
 import I18n from "../../zepp_player/i18n.js";
 import {zpConfirm} from "../../zepp_player/zpDialogs.js";
+import {
+    DeviceProfilesItem,
+    SensorCurveItem,
+    NetworkLogItem,
+    DiagnosticsItem,
+    CompareDevicesItem,
+} from "./PlayerSettingsExtras";
 
 function LanguageSelector() {
     const [locale, setLocale] = React.useState(I18n.locale);
@@ -123,6 +130,12 @@ export function PlayerSettingsPane(props: BackdropProps) {
                     description={I18n.t("settings.preferBuildDesc")}
                     configKey="preferBuildDir"
                     fallback={true} />
+                <hr />
+                <DeviceProfilesItem />
+                <SensorCurveItem />
+                <NetworkLogItem />
+                <CompareDevicesItem />
+                <DiagnosticsItem />
                 <hr />
                 <CssColorOptions />
                 <hr />

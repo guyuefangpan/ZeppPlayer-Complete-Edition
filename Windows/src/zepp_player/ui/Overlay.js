@@ -25,6 +25,21 @@ export default class Overlay {
     }
 
     /**
+     * Drops the decoded mask bitmap. `setProject` builds a new Overlay for
+     * every project, so without this the previous device mask (a full screen
+     * RGBA buffer) stayed alive across every switch.
+     */
+    dispose() {
+        if(this.mask) {
+            this.mask.width = 0;
+            this.mask.height = 0;
+        }
+        this.mask = null;
+        this.maskData = null;
+        this.player = null;
+    }
+
+    /**
      * Preload all contents.
      * @returns {Promise<Overlay>}
      */

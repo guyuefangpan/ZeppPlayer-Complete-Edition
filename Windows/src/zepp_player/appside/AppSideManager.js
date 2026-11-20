@@ -103,11 +103,20 @@ export default class AppSideManager {
         // (MessagingMock registers one per page runtime.)
         this.deviceReceivers = new Set();
 
+        /* Fires when the device app shook hands but no companion ever became
+         * ready, so the UI can explain why it stays disconnected. */
+        this._handshakeTimer = null;
+
         // Companion-side session state, mirroring Zepp OS appId/ports.
         this.session = null;
 
         this.onStateChanged = new MiniSignal();
         this.onSettingsChanged = new MiniSignal();
+
+        /* Companion HTTP traffic, newest last. Shown in the app-side panel so
+         * network problems are visible without adding console.log calls. */
+        this.networkLog = [];
+        this.onNetworkChanged = new MiniSignal();
 
         this._assetCache = new Map();
         this._pending = null;
@@ -234,6 +243,7 @@ export default class AppSideManager {
         };
 
         this.env = createAppSideSandbox(this);
+        this._clearHandshakeWatchdog();
         try {
             runAppSideSource(this.env, source, this.sourceUrl);
         } catch (e) {
@@ -337,6 +347,7 @@ export default class AppSideManager {
             if (packet.port1) this.devicePort = packet.port1;
             if (packet.appId) this.deviceAppId = packet.appId;
             this._replyShake();
+            this._watchHandshake();
             return;
         }
 
@@ -359,12 +370,47 @@ export default class AppSideManager {
             /* The device app boots before the companion here, so its first
              * packets would be dropped. Keep a short backlog and replay it
              * once app-side is running. */
-            if (this.pendingDevice.length < 64)
+            if (this.pendingDevice.length < 64) {
                 this.pendingDevice.push(payload.slice ? payload.slice() : payload);
+            } else {
+                this.player.onConsole("AppSide", [
+                    "Backlog full (64 packets), dropping device packet"
+                ]);
+            }
             return;
         }
-        try { this.env.__zbInjectPeer(payload); }
-        catch (e) { this.player.onConsole("AppSide", ["injectFromDevice failed", e]); }
+        this._transport(payload, (bytes) => {
+            try { this.env.__zbInjectPeer(bytes); }
+            catch (e) { this.player.onConsole("AppSide", ["injectFromDevice failed", e]); }
+        }, "device");
+    }
+
+    /**
+     * Optional transport shaping: a real BLE link has latency, a 20 byte MTU
+     * and can lose packets. Disabled by default, enabled from Settings so app
+     * code that depends on timing can be reproduced.
+     */
+    _transport(bytes, deliver, direction) {
+        const config = this.player.config || {};
+        const latency = Number(config.simLatencyMs) || 0;
+        const mtu = Number(config.simMtu) || 0;
+        const loss = Number(config.simLossRate) || 0;
+
+        if (loss > 0 && Math.random() < loss) {
+            this.player.onConsole("AppSide", [
+                `[sim] ${direction} packet dropped (${bytes.length} bytes)`
+            ]);
+            return;
+        }
+
+        const fragments = mtu > 0 ? Math.ceil(bytes.length / mtu) : 0;
+        const delay = latency + (fragments > 1 ? (fragments - 1) * latency : 0);
+
+        if (delay <= 0) {
+            deliver(bytes);
+            return;
+        }
+        setTimeout(() => deliver(bytes), delay);
     }
 
     /**
@@ -376,6 +422,28 @@ export default class AppSideManager {
         writeHeader(out, PACKET_SHAKE, this.devicePort, SIDE_PORT, this.deviceAppId);
         out[HEADER_SIZE] = this.deviceAppId & 0xff;
         this._dispatchToDevice(out);
+    }
+
+    /* If the companion never comes up, say so instead of leaving the user
+     * staring at "No connection to the application". */
+    _watchHandshake() {
+        if (this.env || this._handshakeTimer) return;
+        this._handshakeTimer = setTimeout(() => {
+            this._handshakeTimer = null;
+            if (this.env) return;
+            const reason = this.lastError || this.settingError
+                || (this.status === "missing" ? "app-side entry not found in app.json" : "unknown");
+            this.onConsole("error", [
+                "Handshake timed out after 3s: the companion is not running (" + reason + ")"
+            ]);
+        }, 3000);
+    }
+
+    _clearHandshakeWatchdog() {
+        if (this._handshakeTimer) {
+            clearTimeout(this._handshakeTimer);
+            this._handshakeTimer = null;
+        }
     }
 
     /**
@@ -395,15 +463,22 @@ export default class AppSideManager {
 
     _dispatchToDevice(bytes) {
         if (!this.deviceReceivers.size) {
-            if (this.pendingCompanion.length < 64)
+            if (this.pendingCompanion.length < 64) {
                 this.pendingCompanion.push(bytes.slice ? bytes.slice() : bytes);
+            } else {
+                this.player.onConsole("AppSide", [
+                    "Backlog full (64 packets), dropping companion packet"
+                ]);
+            }
             return;
         }
-        for (const fn of [...this.deviceReceivers]) {
-            try { fn(bytes); } catch (e) {
-                this.player.onConsole("AppSide", ["device receiver error", e]);
+        this._transport(bytes, (out) => {
+            for (const fn of [...this.deviceReceivers]) {
+                try { fn(out); } catch (e) {
+                    this.player.onConsole("AppSide", ["device receiver error", e]);
+                }
             }
-        }
+        }, "companion");
     }
 
     registerDeviceReceiver(fn) {
@@ -421,6 +496,18 @@ export default class AppSideManager {
     // ------------------------------------------------------------ host bridge
     onConsole(tag, args) {
         this.player.onConsole("AppSide", args, { runtimeID: "AppSide" });
+    }
+
+    /** Records one companion HTTP request (bounded to the newest 200). */
+    recordNetwork(entry) {
+        this.networkLog.push(Object.assign({time: Date.now()}, entry));
+        if(this.networkLog.length > 200) this.networkLog.splice(0, this.networkLog.length - 200);
+        this.onNetworkChanged.dispatch(this.networkLog);
+    }
+
+    clearNetworkLog() {
+        this.networkLog = [];
+        this.onNetworkChanged.dispatch(this.networkLog);
     }
 
     gettext(key) {
@@ -498,6 +585,7 @@ export default class AppSideManager {
      */
     async stop(keepProject) {
         const backlog = this.pendingDevice;
+        this._clearHandshakeWatchdog();
         if (this.env) {
             try { await this.env.__zbStop(); } catch (e) {}
         }

@@ -87,6 +87,75 @@ function quote(str) {
     return JSON.stringify(str);
 }
 
+/**
+ * Returns the [start, end) offsets of every string, template literal and
+ * comment, so module-syntax matches that only exist inside them (for example
+ * `const s = "import x from 'y'"`) can be ignored. Rewriting those used to
+ * break otherwise valid sources.
+ */
+function literalRanges(src) {
+    const ranges = [];
+    let i = 0;
+
+    while (i < src.length) {
+        const c = src[i];
+        const n = src[i + 1];
+
+        if (c === "/" && n === "/") {
+            let j = i;
+            while (j < src.length && src[j] !== "\n") j++;
+            ranges.push([i, j]);
+            i = j;
+            continue;
+        }
+        if (c === "/" && n === "*") {
+            const end = src.indexOf("*/", i + 2);
+            const j = end < 0 ? src.length : end + 2;
+            ranges.push([i, j]);
+            i = j;
+            continue;
+        }
+        if (c === '"' || c === "'" || c === "`") {
+            let j = i + 1;
+            while (j < src.length) {
+                if (src[j] === "\\") { j += 2; continue; }
+                if (src[j] === c) { j++; break; }
+                j++;
+            }
+            ranges.push([i, j]);
+            i = j;
+            continue;
+        }
+
+        i++;
+    }
+
+    return ranges;
+}
+
+function inLiteral(ranges, index) {
+    let low = 0;
+    let high = ranges.length - 1;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (index < ranges[mid][0]) high = mid - 1;
+        else if (index >= ranges[mid][1]) low = mid + 1;
+        else return true;
+    }
+    return false;
+}
+
+/* String.replace that leaves matches found inside a literal untouched. */
+function replaceOutsideLiterals(src, re, cb) {
+    const ranges = literalRanges(src);
+    return src.replace(re, function () {
+        const args = Array.prototype.slice.call(arguments);
+        const offset = args[args.length - 2];
+        if (inLiteral(ranges, offset)) return args[0];
+        return cb.apply(null, args);
+    });
+}
+
 /* Finds the end of a statement so `export const a = ..., b = ...` can be
  * rewritten without a real parser. Tracks strings, comments and brackets. */
 function findStatementEnd(src, from) {
@@ -216,15 +285,22 @@ function buildImportClause(clause, requireExpr, counter) {
 
 function collectSpecifiers(src) {
     const specs = new Set();
+    const ranges = literalRanges(src);
     const fromRe = /(?:^|[\n;])[ \t]*import[ \t]+((?:[^'"\n]|\{[^}]*\})*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\2/g;
     const sideRe = /(?:^|[\n;])[ \t]*import[ \t]*(['"])([^'"\n]+)\1/g;
     const exportFromRe = /(?:^|[\n;])[ \t]*export[ \t]*(?:\*|\{[\s\S]*?\})[ \t]*from[ \t]*(['"])([^'"\n]+)\1/g;
 
     let m;
     /* fromRe: (1) clause (2) quote (3) spec */
-    while ((m = fromRe.exec(src))) specs.add(m[3]);
-    while ((m = sideRe.exec(src))) specs.add(m[2]);
-    while ((m = exportFromRe.exec(src))) specs.add(m[2]);
+    while ((m = fromRe.exec(src))) {
+        if (!inLiteral(ranges, m.index)) specs.add(m[3]);
+    }
+    while ((m = sideRe.exec(src))) {
+        if (!inLiteral(ranges, m.index)) specs.add(m[2]);
+    }
+    while ((m = exportFromRe.exec(src))) {
+        if (!inLiteral(ranges, m.index)) specs.add(m[2]);
+    }
     return Array.from(specs);
 }
 
@@ -238,21 +314,21 @@ function transformModule(src, exprFor) {
      * newline here made the match swallow a preceding side-effect import
      * (`import './buffer'`), which silently dropped the following named
      * imports (`import { EventBus } from './event'`). */
-    src = src.replace(/(^|[\n;])([ \t]*)import[ \t]+((?:[^'"\n]|\{[^}]*\})*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\4[ \t]*;?/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)import[ \t]+((?:[^'"\n]|\{[^}]*\})*?)[ \t]+from[ \t]*(['"])([^'"\n]+)\4[ \t]*;?/g,
         (match, lead, indent, clause, q, spec) =>
             lead + indent + buildImportClause(clause, exprFor(spec), counter));
 
-    src = src.replace(/(^|[\n;])([ \t]*)import[ \t]*(['"])([^'"\n]+)\3[ \t]*;?/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)import[ \t]*(['"])([^'"\n]+)\3[ \t]*;?/g,
         (match, lead, indent, q, spec) =>
             lead + indent + exprFor(spec) + ";");
 
     /* export * from 'x' */
-    src = src.replace(/(^|[\n;])([ \t]*)export[ \t]*\*[ \t]*from[ \t]*(['"])([^'"\n]+)\3[ \t]*;?/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)export[ \t]*\*[ \t]*from[ \t]*(['"])([^'"\n]+)\3[ \t]*;?/g,
         (match, lead, indent, q, spec) =>
             lead + indent + "Object.assign(__zp_exports, " + exprFor(spec) + ");");
 
     /* export { a, b as c } [from 'x'] */
-    src = src.replace(/(^|[\n;])([ \t]*)export[ \t]*\{([^}]*)\}[ \t]*(?:from[ \t]*(['"])([^'"\n]+)\4)?[ \t]*;?/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)export[ \t]*\{([^}]*)\}[ \t]*(?:from[ \t]*(['"])([^'"\n]+)\4)?[ \t]*;?/g,
         (match, lead, indent, list, q, spec) => {
             const parts = splitTopLevel(list, ",").map((s) => s.trim()).filter(Boolean);
             if (spec) {
@@ -277,11 +353,11 @@ function transformModule(src, exprFor) {
         });
 
     /* export default ... */
-    src = src.replace(/(^|[\n;])([ \t]*)export[ \t]+default[ \t]+/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)export[ \t]+default[ \t]+/g,
         (match, lead, indent) => lead + indent + "__zp_exports.default = ");
 
     /* export function/class */
-    src = src.replace(/(^|[\n;])([ \t]*)export[ \t]+((?:async[ \t]+)?function[ \t]*\*?[ \t]*([\w$]+)|class[ \t]+([\w$]+))/g,
+    src = replaceOutsideLiterals(src, /(^|[\n;])([ \t]*)export[ \t]+((?:async[ \t]+)?function[ \t]*\*?[ \t]*([\w$]+)|class[ \t]+([\w$]+))/g,
         (match, lead, indent, decl, fnName, clsName) => {
             const name = fnName || clsName;
             if (name) exported.push(name);
@@ -291,8 +367,10 @@ function transformModule(src, exprFor) {
     /* export const/let/var */
     const declRe = /(^|[\n;])([ \t]*)export[ \t]+(const|let|var)[ \t]+/g;
     const edits = [];
+    const declRanges = literalRanges(src);
     let m;
     while ((m = declRe.exec(src))) {
+        if (inLiteral(declRanges, m.index)) continue;
         const bodyStart = m.index + m[0].length;
         const end = findStatementEnd(src, bodyStart);
         const declaration = src.substring(bodyStart, end + 1);

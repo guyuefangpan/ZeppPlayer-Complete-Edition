@@ -238,6 +238,21 @@ export function createAppSideSandbox(host) {
             headersJson: JSON.stringify(request.headers || {}),
             body: (request.body && typeof request.body === "object") ? JSON.stringify(request.body) : request.body,
         };
+        const startedAt = Date.now();
+        const report = (status, bytes, error) => {
+            if (typeof host.recordNetwork !== "function") return;
+            try {
+                host.recordNetwork({
+                    url: request.url,
+                    method: payload.method,
+                    status: status,
+                    ok: !error,
+                    bytes: bytes || 0,
+                    duration: Date.now() - startedAt,
+                    error: error ? String(error) : null,
+                });
+            } catch (e) {}
+        };
         return window.fetch("/api/proxy", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -246,8 +261,16 @@ export function createAppSideSandbox(host) {
             if (!response.ok) throw new Error("proxy status " + response.status);
             const data = await response.json();
             if (!data || !data.ok) throw new Error((data && data.msg) || "proxy request failed");
+            const text = typeof data.body === "string" ? data.body : JSON.stringify(data.body || "");
+            report(data.status, text.length, null);
             return describeProxyResponse(request, data);
-        }).catch(() => directFetch(request));
+        }).catch(() => directFetch(request).then((response) => {
+            report(response.status, 0, null);
+            return response;
+        }, (error) => {
+            report(0, 0, error);
+            throw error;
+        }));
     };
 
     // settings ----------------------------------------------------------

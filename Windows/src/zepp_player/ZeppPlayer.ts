@@ -22,7 +22,7 @@ import ZeppRuntime from "./ZeppRuntime.js";
 import {TGAImage} from "./TgaImage";
 import {AppEnvironment} from "./SyystemEnvironment";
 import AppSideManager from "./appside/AppSideManager.js";
-import { DeviceInfo, getDeviceProfiles } from "./DeviceProfiles";
+import { DeviceInfo, getDeviceProfiles, getProfilesRevision } from "./DeviceProfiles";
 import {MiniSignal} from 'mini-signals';
 import {CanvasEntry, ImageEntry} from "./types/EnvironmentTypes";
 import {DeviceStateEntry} from "./device_state/DeviceStateEntry";
@@ -30,7 +30,19 @@ import {ZeppAppJson} from "./types/ZeppAppJson";
 import {DeviceStateFetchType, ListDirectoryResponseEntry, PlayerConfig, RenderLevel} from "./types/PlayerTypes";
 import { bundleModule } from "./EsmBundler.js";
 
-const profiles = getDeviceProfiles();
+/* Device profiles can be extended at runtime from the settings panel, so the
+ * table is rebuilt whenever its revision changes. */
+let profiles = getDeviceProfiles();
+let profilesRev = getProfilesRevision();
+
+function currentProfiles() {
+    const rev = getProfilesRevision();
+    if(rev !== profilesRev) {
+        profilesRev = rev;
+        profiles = getDeviceProfiles();
+    }
+    return profiles;
+}
 const assetsBlacklist = ["node_modules/", ".git/"];
 
 export default abstract class ZeppPlayer {
@@ -65,14 +77,24 @@ export default abstract class ZeppPlayer {
     private wfBaseRuntime: ZeppRuntime = null;
     private wfSubRuntime: ZeppRuntime = null;
     private backStack: [string, string][] = [];
+    private static readonly backStackLimit = 32;
     private imgCache: {[path: string]: ImageEntry | CanvasEntry} = {};
+    /* Raw (undecoded) project files, kept across project switches so returning
+     * to a project does not re-download everything. Invalidated whenever the
+     * file watcher reports a change. */
+    private assetCache: {[path: string]: ArrayBuffer} = {};
+    private assetCacheRoot: string = "";
+    private assetCacheValid: boolean = false;
+    /* Recorded sensor samples, replayed one per second. */
+    public sensorCurve: {[type: string]: number[]} = {};
+    private sensorCurveCursor: number = 0;
     private globalScopeFix: string[] = [];
     private overlayTool: Overlay;
     private secondTimer: any = null;
     private _restarting: boolean = false;
 
     get profileData(): DeviceInfo {
-        return profiles[this.profileName];
+        return currentProfiles()[this.profileName];
     }
 
     /**
@@ -213,9 +235,10 @@ export default abstract class ZeppPlayer {
 
     async setProject(path: string) {
         this.projectPath = path;
+        if(this.overlayTool) this.overlayTool.dispose();
         this.overlayTool = new Overlay(this);
         this.vfs = {};
-        this.imgCache = {};
+        if(!this.assetCacheValid) this.releaseImageCache();
         this.config.renderScroll = 0;
 
         await this._loadAppConfig();
@@ -239,6 +262,7 @@ export default abstract class ZeppPlayer {
 
         try {
             await this.finish();
+            this.invalidateAssets();
             await this.setProject(this.projectPath);
             await this.init();
         } catch(e) {
@@ -262,6 +286,9 @@ export default abstract class ZeppPlayer {
             this.currentRuntime.scriptPath,
             this.currentRuntime.onInitParam
         ]);
+        /* Bound the stack: a page that keeps opening another one would
+         * otherwise grow this array (and the runtimes it pins) forever. */
+        if(this.backStack.length > ZeppPlayer.backStackLimit) this.backStack.shift();
         this.config.renderScroll = 0;
 
         // Start new page
@@ -479,6 +506,8 @@ export default abstract class ZeppPlayer {
     private handleSecondChanged() {
         const now = new Date();
 
+        this.advanceSensorCurve();
+
         // Emulate events for RTC mode
         if(this.config.enableRTC && this.currentRuntime) {
                 this.currentRuntime.refresh_required = "rtc_timer";
@@ -487,6 +516,41 @@ export default abstract class ZeppPlayer {
             if(now.getSeconds() === 0 && now.getMinutes() === 0)
                 this.currentRuntime.onStateChanged.dispatch("HOUR");
         }
+    }
+
+    /**
+     * Loads a recorded sensor curve (`{"HEART": [..], "STEP": [..], ...}`) and
+     * plays it back at one sample per second, driving the matching device
+     * states so charts and workout screens can be tested with realistic data.
+     */
+    loadSensorCurve(data: {[type: string]: number[]}) {
+        this.sensorCurve = {};
+        for(const key of Object.keys(data || {})) {
+            const values = data[key];
+            if(Array.isArray(values)) this.sensorCurve[key] = values;
+        }
+        this.sensorCurveCursor = 0;
+        this.onConsole("ZeppPlayer", [
+            "Sensor curve loaded: " + Object.keys(this.sensorCurve).join(", ")
+        ]);
+    }
+
+    stopSensorCurve() {
+        this.sensorCurve = {};
+        this.sensorCurveCursor = 0;
+    }
+
+    private advanceSensorCurve() {
+        const keys = Object.keys(this.sensorCurve);
+        if(keys.length === 0) return;
+
+        for(const key of keys) {
+            const values = this.sensorCurve[key];
+            if(!values.length) continue;
+            const value = values[this.sensorCurveCursor % values.length];
+            if(this.deviceState[key] !== undefined) this.setDeviceState(key as keyof DeviceState, value);
+        }
+        this.sensorCurveCursor++;
     }
 
     private changeOption(obj: any, prop: keyof PlayerConfig, value: any) {
@@ -557,13 +621,53 @@ export default abstract class ZeppPlayer {
 
     private async preloadProjectAssets(path: string) {
         const urls = await this.readDirectoryRecursive(path);
-        const contents = await Promise.all(urls.map(this.loadFile));
         const vfsRoot = this.getVfsAppPath();
+
+        if(this.assetCacheRoot !== path) {
+            this.assetCache = {};
+            this.assetCacheRoot = path;
+            this.assetCacheValid = false;
+        }
+
+        const missing = urls.filter((url) => !this.assetCache[url]);
+        if(missing.length > 0) {
+            const contents = await Promise.all(missing.map(this.loadFile));
+            for(let i = 0; i < missing.length; i++) this.assetCache[missing[i]] = contents[i];
+        }
+        if(this.assetCacheValid && missing.length > 0) {
+            this.onConsole("ZeppPlayer", [
+                `Assets: ${missing.length} reloaded, ${urls.length - missing.length} from cache`
+            ]);
+        }
 
         for(let i = 0; i < urls.length; i++) {
             const vfsPath = urls[i].replace(this.projectPath, vfsRoot);
-            this.vfs[vfsPath] = contents[i];
+            this.vfs[vfsPath] = this.assetCache[urls[i]];
         }
+        this.assetCacheValid = true;
+    }
+
+    /**
+     * Drops every cached project file and decoded image. Called when the file
+     * watcher reports a change, so a restart actually picks up new content.
+     */
+    invalidateAssets() {
+        this.assetCache = {};
+        this.assetCacheValid = false;
+        this.releaseImageCache();
+    }
+
+    private releaseImageCache() {
+        /* Detaching the backing store lets the browser free the GPU texture
+         * immediately; just dropping the reference often keeps it alive. */
+        for(const key in this.imgCache) {
+            const img: any = this.imgCache[key];
+            if(img && typeof img.getContext === "function") {
+                img.width = 0;
+                img.height = 0;
+            }
+        }
+        this.imgCache = {};
     }
 
     /**

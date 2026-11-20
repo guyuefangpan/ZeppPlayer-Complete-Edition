@@ -186,6 +186,10 @@ export function createPageEnv(runtime: ZeppRuntime, appRuntime: AppEnvironment) 
         const mm = object.messaging;
         runtime.onDestroy.push(() => { if(mm && mm.dispose) mm.dispose(); });
     }
+    if(runtime && runtime.onDestroy && object.hmBle) {
+        const ble = object.hmBle;
+        runtime.onDestroy.push(() => { if(ble && ble.dispose) ble.dispose(); });
+    }
 
     return object;
 }
