@@ -70,10 +70,10 @@ export default class AppSidePanel {
 
         const titles = document.createElement("div");
         titles.className = "appside_titles";
-        const title = document.createElement("strong");
-        title.textContent = "app-side";
+        this.titleLabel = document.createElement("strong");
+        this.titleLabel.textContent = "app-side";
         this.stateLabel = document.createElement("small");
-        titles.append(title, this.stateLabel);
+        titles.append(this.titleLabel, this.stateLabel);
 
         this.closeButton = this.iconButton("close", t("appSide.close", "Close"), () => {
             if (window.zpCloseAppSide) window.zpCloseAppSide();
@@ -94,24 +94,13 @@ export default class AppSidePanel {
         const body = document.createElement("div");
         body.className = "appside_body";
 
-        const phone = document.createElement("div");
-        phone.className = "appside_phone";
-        const bar = document.createElement("div");
-        bar.className = "appside_phone_bar";
-        const time = document.createElement("span");
-        time.textContent = "9:41";
-        const notch = document.createElement("span");
-        notch.className = "appside_phone_notch";
-        const signal = document.createElement("span");
-        signal.className = "material-symbols-outlined";
-        signal.textContent = "signal_cellular_alt";
-        bar.append(time, notch, signal);
-
+        /* Like OronBox, the settings page is shown as a normal phone page:
+         * the app bar above carries the app name and state, and the page
+         * itself fills the rest with the system light/dark theme. */
         this.screen = document.createElement("div");
         this.screen.className = "appside_screen";
 
-        phone.append(bar, this.screen);
-        body.appendChild(phone);
+        body.appendChild(this.screen);
 
         this.footer = document.createElement("div");
         this.footer.className = "appside_foot";
@@ -139,6 +128,10 @@ export default class AppSidePanel {
         const running = this.manager.enabled && this.manager.status === "running";
         this.dot.classList.toggle("on", running);
         this.dot.classList.toggle("error", this.manager.status === "error");
+
+        /* Real clients title the page with the app name from the manifest. */
+        const app = this.player && this.player.appConfig && this.player.appConfig.app;
+        if (this.titleLabel && app && app.appName) this.titleLabel.textContent = app.appName;
 
         let text = running ? t("appSide.running", "Running") : t("appSide.stopped", "Not running");
         if (this.manager.appId !== null && this.manager.appId !== undefined) {

@@ -1378,64 +1378,19 @@ body.zp-mobile #view_explorer .prop_row strong {
     flex: 1;
     min-height: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    /* Lets the phone scale with the space the panel actually got, so it grows
-       when the window is maximized instead of staying at a fixed width. */
-    container-type: size;
-}
-
-.appside_phone {
-    flex: 0 0 auto;
-    /* Phone-like portrait screen: take the largest 9:19 surface that fits the
-       panel box, whichever side runs out first. Older WebViews without
-       container query units keep the fixed fallback. */
-    width: min(250px, 100%);
-    width: min(100cqw, calc(100cqh * 9 / 19));
-    aspect-ratio: 9 / 19;
-    max-height: 100%;
-    box-sizing: border-box;
-    /* The status bar below scales with the phone itself. */
-    container-type: size;
-    display: flex;
-    flex-direction: column;
-    background: #0b0b0d;
-    border: 1px solid #3a3a3a;
-    border-radius: 22px;
     overflow: hidden;
-    box-shadow: inset 0 0 0 3px #000, 0 6px 18px rgba(0, 0, 0, .35);
-}
-
-.appside_phone_bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.2cqh 3cqw .8cqh;
-    font-size: clamp(10px, 1.9cqh, 18px);
-    color: #cfcfcf;
-    background: #0b0b0d;
-    flex: none;
-}
-
-.appside_phone_notch {
-    width: 26cqw;
-    height: 2.7cqh;
-    background: #000;
-    border-radius: 0 0 2.4cqw 2.4cqw;
-    margin-top: -1.2cqh;
-}
-
-.appside_phone_bar .material-symbols-outlined {
-    font-size: clamp(13px, 2.4cqh, 22px);
 }
 
 .appside_screen {
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    background: #111114;
-    color: #ececec;
-    font-size: 12px;
+    /* The page brings its own system light/dark sheet (see PAGE_STYLE), so the
+       host only provides the surface it is painted on. */
+    background: Canvas;
+    color: CanvasText;
+    border: 1px solid rgba(128, 128, 128, .28);
+    border-radius: 12px;
 }
 
 .appside_empty {
@@ -1488,16 +1443,15 @@ body.zp-appside-open .appside_close {
     display: flex;
 }
 
-/* App-side settings: the same centred modal as the code preview on phones and
- * in narrow desktop windows, because the panel column can never be tall or
- * wide enough for a phone-sized screen. */
-body.zp-mobile #view_appside,
-body.zp-narrow-code:not(.zp-mobile) #view_appside {
+/* App-side settings are a phone page, so they always open as a centred card
+ * (the same modal treatment the code preview uses on phones). Docking them in
+ * the narrow tool column squeezed the page until every label wrapped one
+ * character per line, which never happens in the real client. */
+body #view_appside {
     display: none;
 }
 
-body.zp-mobile.zp-appside-open #view_appside,
-body.zp-narrow-code:not(.zp-mobile).zp-appside-open #view_appside {
+body.zp-appside-open #view_appside {
     display: block;
     position: fixed;
     top: 50%;

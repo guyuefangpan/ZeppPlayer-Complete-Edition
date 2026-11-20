@@ -66,11 +66,10 @@ window.zpPanelTab = (panelId, el) => {
     AppSettingsManager.setObject("activePanel", panelId);
 };
 
-/* The app-side page shares the code preview's modal treatment on phones and in
- * narrow desktop windows. */
+/* The app-side page is a phone page, so it always opens as a centred card:
+ * the tool column can never be wide enough to render it like the real client. */
 function isAppSideModal() {
-    return document.body.classList.contains("zp-mobile")
-        || document.body.classList.contains("zp-narrow-code");
+    return true;
 }
 
 window.zpOpenAppSide = () => {

@@ -471,19 +471,6 @@ window.onerror = function (message, source, line, column, error) {
 };
 window.onunhandledrejection = function (event) { showError(event.reason); };
 
-/* The page is laid out for a 250px-wide phone screen. When the simulator
- * gives the phone a bigger screen (maximized window), zoom the whole document
- * so the page grows proportionally like a scaled phone instead of stretching
- * its layout to the wider viewport. */
-var __zpDesignWidth = 250;
-function __zpFit() {
-    var width = document.documentElement.clientWidth || window.innerWidth || __zpDesignWidth;
-    var scale = Math.max(1, width / __zpDesignWidth);
-    document.body.style.zoom = String(scale);
-}
-__zpFit();
-window.addEventListener('resize', __zpFit);
-
 try {
     var script = document.createElement('script');
     script.textContent = __source;
@@ -500,24 +487,26 @@ queueMicrotask(function () {
 `;
 }
 
+/* Copied from OronBox (assets/scripts + zeppos_app_settings_service.dart
+ * `_runtimeHtml`), which is the reference implementation of the phone-side
+ * AppSettingsPage renderer. Keeping the exact same sheet makes third-party
+ * settings pages look like they do inside the official client. */
 const PAGE_STYLE = `
-:root{color-scheme:dark;font:16px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+:root{color-scheme:light dark;font:16px system-ui,sans-serif}
 html,body{width:100%;height:100%;margin:0;overflow:hidden;background:Canvas;color:CanvasText}
 *,*::before,*::after{box-sizing:border-box}
-.root{width:100%;height:100%;overflow:auto;overscroll-behavior:contain;padding:4px}
+.root{width:100%;height:100%;overflow:auto;overscroll-behavior:contain}
 .root>div{width:100%;margin-inline:auto}
 .section{padding:16px;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);border-radius:16px}
 .section+.section{margin-top:12px}
 .section h2{font-size:18px;margin:0 0 4px}
 .section p{opacity:.7;margin:0 0 12px}
 .row{display:flex;align-items:center;gap:12px;min-height:44px}
-.row-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:48px}
-.label{font-weight:600;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row input:not([type=checkbox]):not([type=range]),.row select,.row textarea{flex:0 1 130px;width:130px;min-width:0}
-.row input[type=range]{flex:1 1 90px;min-width:60px;max-width:130px}
+.row-main{display:flex;flex:1;flex-direction:column;min-width:0}
+.label{font-weight:600;margin-bottom:6px}
 .sublabel{opacity:.7;font-size:.9em}
-button,input,select,textarea{font:inherit;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb,CanvasText 30%,transparent);max-width:100%;background:transparent;color:inherit}
-button{cursor:pointer;padding-inline:20px}
+button,input,select,textarea{font:inherit;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb,CanvasText 30%,transparent);max-width:100%}
+button{cursor:pointer}
 img{max-width:100%}
 .custom-select{position:relative}
 .custom-select>select{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;opacity:0;cursor:pointer;z-index:2}
@@ -528,6 +517,12 @@ img{max-width:100%}
 .toast{position:fixed;left:50%;transform:translateX(-50%);padding:12px 20px;border-radius:999px;background:#323232;color:white;z-index:10}
 .toast.top{top:24px}
 .toast.bottom{bottom:24px}
+@media(max-width:600px){
+.root>div{max-width:100%!important;padding-left:12px!important;padding-right:12px!important}
+.row,.responsive-row{flex-wrap:wrap!important}
+button,input,select,textarea{min-width:0}
+.responsive-row>div{flex-basis:180px}
+}
 `;
 
 /**
