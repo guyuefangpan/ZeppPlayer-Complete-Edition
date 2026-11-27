@@ -16,6 +16,7 @@ import {
     NetworkLogItem,
     DiagnosticsItem,
     CompareDevicesItem,
+    ZeusRuntimeItem,
 } from "./PlayerSettingsExtras";
 
 function LanguageSelector() {
@@ -131,6 +132,7 @@ export function PlayerSettingsPane(props: BackdropProps) {
                     configKey="preferBuildDir"
                     fallback={true} />
                 <hr />
+                <ZeusRuntimeItem />
                 <DeviceProfilesItem />
                 <SensorCurveItem />
                 <NetworkLogItem />

@@ -29,7 +29,7 @@ function Step($t) { Write-Host "==> $t" }
 
 New-Item -ItemType Directory -Force -Path $CACHE, $LIBS, $ZEUS | Out-Null
 
-if (Test-Path $STAMP) {
+if ((Test-Path $STAMP) -and (Test-Path (Join-Path $ZEUS "runtime.json"))) {
     Write-Host "Runtime already staged at $OUT"
     exit 0
 }
@@ -179,6 +179,10 @@ $manifest = @{
     stagedAt = (Get-Date).ToUniversalTime().ToString("o")
 } | ConvertTo-Json
 [System.IO.File]::WriteAllText($STAMP, $manifest, (New-Object System.Text.UTF8Encoding($false)))
+# The app treats <files>/zeus/runtime.json as "runtime present", so the same
+# stamp must live inside the zipped tree as well.
+[System.IO.File]::WriteAllText((Join-Path $ZEUS "runtime.json"), $manifest,
+    (New-Object System.Text.UTF8Encoding($false)))
 
 $mb = [math]::Round(((Get-ChildItem $OUT -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Host "==> Runtime staged: $OUT ($mb MB)"

@@ -411,6 +411,23 @@ public final class LocalServer {
             sendJson(out, "{\"ok\":true,\"templates\":[]}");
             return;
         }
+        if (path.equals("/api/zeus/install")) {
+            if (!"POST".equals(method)) {
+                sendText(out, 405, "text/plain", "Method not allowed");
+                return;
+            }
+            if (!zeus.isSupportedArch()) {
+                sendJson(out, 400, "{\"ok\":false,\"msg\":\"当前设备不是 arm64，无法安装 Zeus 运行时\"}");
+                return;
+            }
+            zeus.installAsync();
+            sendJson(out, "{\"ok\":true}");
+            return;
+        }
+        if (path.equals("/api/zeus/install_progress")) {
+            sendJson(out, zeus.installProgressJson());
+            return;
+        }
         if (path.equals("/api/zeus/job")) {
             int from = 0;
             try { from = Integer.parseInt(params.get("from")); } catch (Exception ignored) {}

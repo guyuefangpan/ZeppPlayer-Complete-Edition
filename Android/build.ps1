@@ -21,7 +21,7 @@ $MASTER = Join-Path $ROOT "..\Windows"
 $BUILD = Join-Path $ROOT "build"
 $ASSETS = Join-Path $ROOT "assets"
 $RELEASE = Join-Path $ROOT "release"
-$VERSION = "1.15.0"
+$VERSION = "1.16.0"
 $VER_PARTS = $VERSION.Split(".")
 $VER_CODE = [int]$VER_PARTS[0] * 10000 + [int]$VER_PARTS[1] * 100 + [int]$VER_PARTS[2]
 $OUT_APK = Join-Path $RELEASE "ZeppPlayer-$VERSION.apk"
@@ -171,6 +171,15 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
     (Join-Path $RUNTIME "zeus"), $zeusZip,
     [System.IO.Compression.CompressionLevel]::Optimal, $false)
 Write-Host ("    zeus assets: " + [math]::Round((Get-Item $zeusZip).Length / 1MB, 1) + " MB")
+
+# Uncompressed size lets the install dialog show an exact progress bar.
+$zeusFiles = Get-ChildItem (Join-Path $RUNTIME "zeus") -Recurse -File
+$zeusMeta = @{
+    bytes = ($zeusFiles | Measure-Object Length -Sum).Sum
+    files = $zeusFiles.Count
+} | ConvertTo-Json
+[System.IO.File]::WriteAllText((Join-Path $ASSETS "zeus-runtime.json"), $zeusMeta,
+    (New-Object System.Text.UTF8Encoding($false)))
 
 # ------------------------------------------------------------------- package
 Step "aapt2 compile"

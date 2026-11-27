@@ -41,6 +41,7 @@ public class ZeusRuntime {
     private final File tmp;
     private final File npmCache;
     private final File projectsDir;
+    private final String appVersion;
 
     private Process process;
     private Thread pump;
@@ -53,21 +54,126 @@ public class ZeusRuntime {
     private volatile boolean running = false;
     private long startedAt = 0;
 
-    public ZeusRuntime(Context context, File filesDir, File projectsDir) {
+    public ZeusRuntime(Context context, File filesDir, File projectsDir, String appVersion) {
         this.context = context;
         this.root = new File(filesDir, "zeus");
         this.home = new File(filesDir, "home");
         this.tmp = new File(filesDir, "tmp");
         this.npmCache = new File(filesDir, "npm-cache");
         this.projectsDir = projectsDir;
+        this.appVersion = appVersion == null ? "0" : appVersion;
     }
 
     // ------------------------------------------------------------- assets
-    public synchronized void ensureExtracted(String version) throws IOException {
+    /** True when the bundled runtime has not been unpacked for this version. */
+    public synchronized boolean needsInstall(String version) {
+        if (!isSupportedArch()) return false;
         File stamp = new File(root, "runtime.json");
         File mark = new File(root, ".version");
         String want = version == null ? "0" : version;
-        if (stamp.isFile() && mark.isFile() && want.equals(readSmall(mark).trim())) return;
+        return !(stamp.isFile() && mark.isFile() && want.equals(readSmall(mark).trim()));
+    }
+
+    /** Human readable runtime size, read from the metadata written at build time. */
+    public synchronized long runtimeBytes() {
+        String json = readAsset("zeus-runtime.json");
+        try {
+            return Long.parseLong(jsonValue(json, "bytes"));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private String readAsset(String name) {
+        try {
+            InputStream in = context.getAssets().open(name);
+            try {
+                byte[] data = new byte[(int) Math.min(in.available(), 8192)];
+                int read = in.read(data);
+                return new String(data, 0, Math.max(read, 0), "UTF-8");
+            } finally {
+                in.close();
+            }
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /* ---------------------------------------------------------- installer
+     * The runtime is ~100 MB, so unpacking happens only when the user asks
+     * for it, on a background thread, with progress exposed to the dialog. */
+    public static final String IDLE = "idle";
+    public static final String INSTALLING = "installing";
+    public static final String DONE = "done";
+    public static final String FAILED = "failed";
+
+    private String installState = IDLE;
+    private long installBytes = 0;
+    private long installTotal = 0;
+    private long installFiles = 0;
+    private String installError = "";
+
+    public synchronized String installProgressJson() {
+        int percent = 0;
+        if (installTotal > 0) percent = (int) Math.min(99, (installBytes * 100) / installTotal);
+        if (DONE.equals(installState)) percent = 100;
+        return Json.obj(
+                "ok", "true",
+                "state", Json.str(installState),
+                "percent", String.valueOf(percent),
+                "bytes", String.valueOf(installBytes),
+                "total", String.valueOf(installTotal),
+                "files", String.valueOf(installFiles),
+                "error", Json.str(installError));
+    }
+
+    public synchronized boolean isInstalling() {
+        return INSTALLING.equals(installState);
+    }
+
+    public synchronized void installAsync() {
+        if (INSTALLING.equals(installState)) return;
+        final String version = appVersion;
+        installState = INSTALLING;
+        installBytes = 0;
+        installError = "";
+        installTotal = runtimeBytes();
+        installFiles = 0;
+
+        Thread worker = new Thread(new Runnable() {
+            public void run() {
+                String error = null;
+                try {
+                    extract(version);
+                } catch (Exception e) {
+                    error = e.getMessage() == null ? e.toString() : e.getMessage();
+                }
+                synchronized (ZeusRuntime.this) {
+                    if (error == null) {
+                        installState = DONE;
+                        installBytes = installTotal;
+                    } else {
+                        installState = FAILED;
+                        installError = error;
+                    }
+                }
+            }
+        }, "zeus-install");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void extract(String version) throws IOException {
+        File stamp = new File(root, "runtime.json");
+        File mark = new File(root, ".version");
+        String want = version == null ? "0" : version;
+        if (stamp.isFile() && mark.isFile() && want.equals(readSmall(mark).trim())) {
+            synchronized (this) {
+                installState = DONE;
+                installBytes = installTotal;
+            }
+            return;
+        }
 
         deleteRecursive(root);
         root.mkdirs();
@@ -81,7 +187,9 @@ public class ZeusRuntime {
             ZipEntry entry;
             byte[] buffer = new byte[65536];
             while ((entry = zip.getNextEntry()) != null) {
-                String name = entry.getName();
+                // ZipFile.CreateFromDirectory on Windows stores backslashes,
+                // which are literal characters on Linux: normalise first.
+                String name = entry.getName().replace('\\', '/');
                 if (name.contains("..")) continue;
                 File out = new File(root, name);
                 if (entry.isDirectory()) {
@@ -93,9 +201,18 @@ public class ZeusRuntime {
                 OutputStream os = new FileOutputStream(out);
                 try {
                     int read;
-                    while ((read = zip.read(buffer)) > 0) os.write(buffer, 0, read);
+                    while ((read = zip.read(buffer)) > 0) {
+                        os.write(buffer, 0, read);
+                        synchronized (ZeusRuntime.this) {
+                            installBytes += read;
+                            if (installTotal > 0 && installBytes > installTotal) installBytes = installTotal;
+                        }
+                    }
                 } finally {
                     os.close();
+                }
+                synchronized (this) {
+                    installFiles++;
                 }
             }
         } finally {
@@ -131,6 +248,10 @@ public class ZeusRuntime {
         return Json.obj(
                 "ok", "true",
                 "installed", Json.str(extracted && isSupportedArch() ? "true" : "false"),
+                "needsInstall", Json.str(needsInstall(appVersion) ? "true" : "false"),
+                "installing", Json.str(isInstalling() ? "true" : "false"),
+                "runtimeBytes", String.valueOf(runtimeBytes()),
+                "appVersion", Json.str(appVersion),
                 "version", Json.str(zeusVersion),
                 "nodeVersion", Json.str(nodeVersion),
                 "arch", Json.str(Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "unknown"),
@@ -162,7 +283,9 @@ public class ZeusRuntime {
         }
         File cli = new File(root, "node_modules/@zeppos/zeus-cli/bin/main.js");
         if (!cli.isFile()) {
-            result.message = "Zeus 运行时尚未解压";
+            result.message = needsInstall(appVersion)
+                    ? "请先安装 Zeus 运行时"
+                    : "Zeus 运行时缺失，请重新安装";
             return result;
         }
         File cwd = resolveProject(projectUrl);

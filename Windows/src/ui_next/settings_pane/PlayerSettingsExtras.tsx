@@ -107,6 +107,53 @@ export function SensorCurveItem() {
     );
 }
 
+/** Android only: install or repair the bundled Node + Zeus CLI runtime. */
+export function ZeusRuntimeItem() {
+    const [state, setState] = React.useState<any>(null);
+    const [message, setMessage] = React.useState("");
+
+    const load = () => {
+        fetch("/api/zeus/info")
+            .then((r) => {
+                const type = r.headers.get("content-type") || "";
+                return (r.ok && type.indexOf("application/json") > -1) ? r.json() : null;
+            })
+            .then((info) => { if (info && info.ok) setState(info); })
+            .catch(() => {});
+    };
+
+    React.useEffect(() => { load(); }, []);
+
+    /* Desktop and non-arm64 devices have no bundled runtime, so the item
+     * stays hidden there instead of showing a misleading status. */
+    if(!state || !state.supported) return null;
+
+    const mb = (Number(state.runtimeBytes || 0) / 1048576).toFixed(0);
+    const status = state.installing
+        ? "正在安装…"
+        : state.needsInstall
+            ? `未安装（需要约 ${mb} MB）`
+            : "已安装";
+
+    const open = async () => {
+        const mod = await import("../../ui_managment/ZeusInstallDialog.js");
+        mod.forceZeusInstallDialog();
+        setTimeout(load, 1500);
+        setMessage("安装完成后可再次查看状态");
+    };
+
+    return (
+        <SettingsListItem title="Zeus 运行时" noClickHandler
+            description={`真实 Node.js + @zeppos/zeus-cli · ${status}`}>
+            <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
+                {state.supported && <Button onClick={open}>{state.needsInstall ? "安装" : "重新安装"}</Button>}
+                <Button onClick={load}>刷新状态</Button>
+                {message && <span style={{fontSize: "12px", opacity: .85}}>{message}</span>}
+            </div>
+        </SettingsListItem>
+    );
+}
+
 /** Companion HTTP traffic, so network issues need no console.log digging. */
 export function NetworkLogItem() {
     const [rows, setRows] = React.useState<any[]>([]);

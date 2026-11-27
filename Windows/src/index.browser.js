@@ -33,6 +33,7 @@ import {showToast} from "./zepp_player/zpToast.js";
 import {initViewMode, isDesktopShell, isAndroidApp, isMobileView} from "./ui_managment/ViewMode.js";
 import {openNewProjectDialog, closeNewProjectDialog} from "./ui_managment/NewProjectDialog.js";
 import {initZeusMenu} from "./ui_managment/ZeusMenu.js";
+import {maybePromptZeusInstall} from "./ui_managment/ZeusInstallDialog.js";
 
 const DISPLAY_FPS = 60;
 
@@ -538,6 +539,7 @@ const start = async () => {
 
     try { initViewMode(); } catch (e) { bootWarn("view mode", e); }
     try { initZeusMenu(); } catch (e) { bootWarn("zeus menu", e); }
+    try { maybePromptZeusInstall(); } catch (e) { bootWarn("zeus install", e); }
     try { setupDropImport(); } catch (e) { bootWarn("drop import", e); }
 
     // The engine is created before anything async so the canvas gets its real
