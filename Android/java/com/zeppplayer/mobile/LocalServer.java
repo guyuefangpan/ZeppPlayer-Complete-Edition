@@ -41,6 +41,7 @@ public final class LocalServer {
 
     private final Storage storage;
     private final Saver saver;
+    private final ZeusRuntime zeus;
     private final ExecutorService pool = Executors.newCachedThreadPool();
 
     private ServerSocket serverSocket;
@@ -53,8 +54,13 @@ public final class LocalServer {
     private Map<String, String> changeSnapshot = new HashMap<String, String>();
 
     public LocalServer(Storage storage, Saver saver) {
+        this(storage, saver, null);
+    }
+
+    public LocalServer(Storage storage, Saver saver, ZeusRuntime zeus) {
         this.storage = storage;
         this.saver = saver;
+        this.zeus = zeus;
     }
 
     public int start() throws IOException {
@@ -388,6 +394,107 @@ public final class LocalServer {
 
     /* ----------------------------------------------------------------- api */
 
+    /* ------------------------------------------------------------ Zeus CLI
+     * Same contract as the desktop shell's bridge (/api/zeus/*), backed by the
+     * bundled real Node.js runtime (see ZeusRuntime). */
+    private void handleZeus(String method, String path, Map<String, String> params,
+                            InputStream in, long length, OutputStream out) throws IOException {
+        if (zeus == null) {
+            sendJson(out, 503, "{\"ok\":false,\"msg\":\"Zeus 运行时未初始化\"}");
+            return;
+        }
+        if (path.equals("/api/zeus/info")) {
+            sendJson(out, zeus.infoJson());
+            return;
+        }
+        if (path.equals("/api/zeus/templates")) {
+            sendJson(out, "{\"ok\":true,\"templates\":[]}");
+            return;
+        }
+        if (path.equals("/api/zeus/job")) {
+            int from = 0;
+            try { from = Integer.parseInt(params.get("from")); } catch (Exception ignored) {}
+            sendJson(out, zeus.jobJson(params.get("id"), from));
+            return;
+        }
+        if (!"POST".equals(method)) {
+            sendText(out, 405, "text/plain", "Method not allowed");
+            return;
+        }
+        if (length <= 0 || length > MAX_JSON_BODY) {
+            sendJson(out, 400, "{\"ok\":false,\"msg\":\"请求体为空\"}");
+            return;
+        }
+        Map<String, String> body = Json.parseObject(new String(readBody(in, length), "UTF-8"));
+
+        if (path.equals("/api/zeus/stop")) {
+            zeus.stopJob(body.get("id"));
+            sendJson(out, "{\"ok\":true}");
+            return;
+        }
+        if (path.equals("/api/zeus/login")) {
+            sendJson(out, zeus.login(body.get("cookie"), body.get("cname")));
+            return;
+        }
+        if (path.equals("/api/zeus/logout")) {
+            sendJson(out, zeus.logout());
+            return;
+        }
+        if (path.equals("/api/zeus/run")) {
+            String action = body.get("action");
+            if (action == null) action = "";
+            List<String> argv = new ArrayList<String>();
+            boolean global = false;
+            if ("prune".equals(action)) {
+                argv.add("prune");
+            } else if ("build".equals(action)) {
+                argv.add("build");
+            } else if ("dev".equals(action)) {
+                argv.add("dev");
+            } else if ("preview".equals(action)) {
+                argv.add("preview");
+            } else if ("bridge".equals(action)) {
+                argv.add("bridge");
+            } else if ("status".equals(action)) {
+                argv.add("status");
+                global = true;
+            } else if ("config".equals(action)) {
+                argv.add("config");
+                argv.add("list");
+                global = true;
+            } else if ("cache-update".equals(action)) {
+                argv.add("cache");
+                argv.add("update");
+                global = true;
+            } else if ("cache-clean".equals(action)) {
+                argv.add("cache");
+                argv.add("clean");
+                global = true;
+            } else {
+                sendJson(out, 400, "{\"ok\":false,\"msg\":\"不支持的 zeus 操作\"}");
+                return;
+            }
+
+            if (("preview".equals(action) || "bridge".equals(action))
+                    && !zeus.isLoggedIn()) {
+                sendJson(out, 400, "{\"ok\":false,\"code\":\"login_required\","
+                        + "\"msg\":\"该操作需要华米账号，请先在「设置 → 华米账号」粘贴 Cookie 登录。\"}");
+                return;
+            }
+
+            ZeusRuntime.JobStart job = zeus.startJob(action, argv,
+                    global ? "" : body.get("projectUrl"), action);
+            String json = "{\"ok\":" + (job.ok ? "true" : "false")
+                    + ",\"msg\":" + Json.str(job.message)
+                    + ",\"jobId\":" + Json.str(job.jobId)
+                    + ",\"name\":" + Json.str(job.name) + "}";
+            sendJson(out, job.ok ? 200 : 400, json);
+            return;
+        }
+
+        sendJson(out, 404, "{\"ok\":false,\"msg\":\"未知接口\"}");
+    }
+
     private void handleApi(String method, String path, Map<String, String> params,
                            Map<String, String> headers, InputStream in, long length, OutputStream out)
             throws IOException {
@@ -402,6 +509,11 @@ public final class LocalServer {
                 return;
             }
             proxyRequest(Json.parseObject(new String(readBody(in, length), "UTF-8")), out);
+            return;
+        }
+
+        if (path.startsWith("/api/zeus/")) {
+            handleZeus(method, path, params, in, length, out);
             return;
         }
 

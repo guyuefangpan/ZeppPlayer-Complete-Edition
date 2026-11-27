@@ -1,0 +1,9 @@
+{
+  "name": "sharp",
+  "version": "0.33.5",
+  "description": "Pure JavaScript sharp compatibility layer for the Android Zeus runtime (resize/extend/trim only).",
+  "main": "index.js",
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  }
+}

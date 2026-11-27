@@ -88,9 +88,7 @@ function fillNarrow(menu) {
     }
 }
 
-export function initZeusMenu() {
-    if (!isDesktopShell()) return;
-
+function fillAll() {
     const wide = document.getElementById("zp_split_zeus_menu");
     if (wide && wide.getAttribute("data-zeus-ready") !== "1") {
         wide.setAttribute("data-zeus-ready", "1");
@@ -107,13 +105,38 @@ export function initZeusMenu() {
     }
 }
 
+export function initZeusMenu() {
+    if (isDesktopShell()) {
+        fillAll();
+        return;
+    }
+
+    /* Phones and plain browsers have no bridge by default. The Android client
+     * ships a real Node.js runtime, so probe the bridge and only then wire the
+     * menu; everything else keeps the previous behaviour. */
+    fetch("/api/zeus/info")
+        .then((r) => {
+            const type = r.headers.get("content-type") || "";
+            return (r.ok && type.indexOf("application/json") > -1) ? r.json() : null;
+        })
+        .then((info) => {
+            if (info && info.ok && info.installed) fillAll();
+        })
+        .catch(() => {});
+}
+
 window.zpZeusAction = (kind) => {
     if (kind === "new") {
         window.zpNewProject();
         return;
     }
     if (kind === "build") {
-        window.zpExportProject();
+        if (isDesktopShell()) {
+            window.zpExportProject();
+        } else if (window.player) {
+            /* The Android shell runs the real zeus build on the device. */
+            runZeusProjectAction("build", window.player.projectPath);
+        }
         return;
     }
     /* `zeus dev` pushes the build to the official Zepp OS simulator over

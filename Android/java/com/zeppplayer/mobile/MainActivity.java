@@ -170,6 +170,7 @@ public class MainActivity extends Activity {
         // Unpacking the font and the demo project can take a few seconds on
         // slow flash, so it must not block the UI thread.
         final String webVersion = appVersionName();
+        final ZeusRuntime zeusRuntime = new ZeusRuntime(this, getFilesDir(), projectsDir);
         new Thread(new Runnable() {
             public void run() {
                 try {
@@ -179,8 +180,19 @@ public class MainActivity extends Activity {
                     e.printStackTrace();
                 }
 
+                /* The real Zeus CLI needs a real Node runtime; unpacking the
+                 * bundled package tree takes a moment, so it happens here
+                 * rather than on the first command. */
+                if (zeusRuntime.isSupportedArch()) {
+                    try {
+                        zeusRuntime.ensureExtracted(webVersion);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+
                 final LocalServer localServer = new LocalServer(
-                        new FileStorage(projectsDir, webDir), new AndroidSaver(MainActivity.this));
+                        new FileStorage(projectsDir, webDir), new AndroidSaver(MainActivity.this), zeusRuntime);
                 int port;
                 try {
                     port = localServer.start();

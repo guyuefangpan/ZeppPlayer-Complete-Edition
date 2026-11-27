@@ -21,7 +21,7 @@ $MASTER = Join-Path $ROOT "..\Windows"
 $BUILD = Join-Path $ROOT "build"
 $ASSETS = Join-Path $ROOT "assets"
 $RELEASE = Join-Path $ROOT "release"
-$VERSION = "1.14.0"
+$VERSION = "1.15.0"
 $VER_PARTS = $VERSION.Split(".")
 $VER_CODE = [int]$VER_PARTS[0] * 10000 + [int]$VER_PARTS[1] * 100 + [int]$VER_PARTS[2]
 $OUT_APK = Join-Path $RELEASE "ZeppPlayer-$VERSION.apk"
@@ -146,6 +146,32 @@ Step "Preparing resources"
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "res\drawable") | Out-Null
 Copy-Item (Join-Path $MASTER "app\icon.png") (Join-Path $ROOT "res\drawable\ic_launcher.png") -Force
 
+# ------------------------------------------------------------------ Zeus CLI
+# The phone client runs the real @zeppos/zeus-cli on a genuine Node.js runtime:
+# node itself (and esbuild) go into lib/arm64-v8a so Android extracts them to
+# the native library directory, where executing binaries is allowed on API 29+.
+Step "Staging Zeus runtime"
+& powershell -ExecutionPolicy Bypass -File (Join-Path $ROOT "fetch_zeus_runtime.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Zeus runtime staging failed" }
+
+$RUNTIME = Join-Path (Join-Path $ROOT "..") ".zeus_runtime"
+$LIB_OUT = Join-Path $BUILD "lib\arm64-v8a"
+New-Item -ItemType Directory -Force -Path $LIB_OUT | Out-Null
+Get-ChildItem (Join-Path $RUNTIME "libs") -File | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $LIB_OUT $_.Name) -Force
+}
+Write-Host ("    native libs: " + (Get-ChildItem $LIB_OUT -File).Count + " files, " +
+    [math]::Round(((Get-ChildItem $LIB_OUT -File | Measure-Object Length -Sum).Sum / 1MB), 1) + " MB")
+
+# The JS tree is one compressed asset; it is unpacked into files/zeus on first run.
+$zeusZip = Join-Path $ASSETS "zeus-runtime.zip"
+if (Test-Path $zeusZip) { Remove-Item $zeusZip -Force }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+    (Join-Path $RUNTIME "zeus"), $zeusZip,
+    [System.IO.Compression.CompressionLevel]::Optimal, $false)
+Write-Host ("    zeus assets: " + [math]::Round((Get-Item $zeusZip).Length / 1MB, 1) + " MB")
+
 # ------------------------------------------------------------------- package
 Step "aapt2 compile"
 & (Join-Path $BT "aapt2.exe") compile --dir (Join-Path $ROOT "res") -o (Join-Path $BUILD "res.zip")
@@ -207,8 +233,21 @@ try {
             try { $fs.CopyTo($es) } finally { $fs.Dispose() }
         } finally { $es.Dispose() }
     }
+
+    # Native executables/libraries. PackageManager extracts these into
+    # nativeLibraryDir on install (android:extractNativeLibs="true"), which is
+    # the one place an app may execute a bundled binary on modern Android.
+    $nativeFiles = Get-ChildItem $LIB_OUT -File
+    foreach ($file in $nativeFiles) {
+        $entry = $zip.CreateEntry("lib/arm64-v8a/" + $file.Name, [System.IO.Compression.CompressionLevel]::Optimal)
+        $es = $entry.Open()
+        try {
+            $fs = [System.IO.File]::OpenRead($file.FullName)
+            try { $fs.CopyTo($es) } finally { $fs.Dispose() }
+        } finally { $es.Dispose() }
+    }
 } finally { $zip.Dispose() }
-Write-Host "    assets: $($assetFiles.Count) files"
+Write-Host "    assets: $($assetFiles.Count) files, native: $($nativeFiles.Count) files"
 
 Step "Aligning"
 & (Join-Path $BT "zipalign.exe") -f 4 (Join-Path $BUILD "base.apk") (Join-Path $BUILD "aligned.apk")
