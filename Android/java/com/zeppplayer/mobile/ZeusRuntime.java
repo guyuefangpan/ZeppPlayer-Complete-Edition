@@ -78,10 +78,24 @@ public class ZeusRuntime {
     public synchronized long runtimeBytes() {
         String json = readAsset("zeus-runtime.json");
         try {
-            return Long.parseLong(jsonValue(json, "bytes"));
+            return Long.parseLong(jsonNumber(json, "bytes"));
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    /** Reads a numeric JSON field (unquoted), without pulling in a parser. */
+    private static String jsonNumber(String json, String key) {
+        String needle = "\"" + key + "\"";
+        int at = json.indexOf(needle);
+        if (at < 0) return "";
+        int colon = json.indexOf(':', at + needle.length());
+        if (colon < 0) return "";
+        int i = colon + 1;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+        int start = i;
+        while (i < json.length() && (Character.isDigit(json.charAt(i)) || json.charAt(i) == '-')) i++;
+        return start == i ? "" : json.substring(start, i);
     }
 
     private String readAsset(String name) {
@@ -145,6 +159,9 @@ public class ZeusRuntime {
                 String error = null;
                 try {
                     extract(version);
+                    // A successful unpack is not the same as a working runtime:
+                    // the bundled Node binary still has to be able to start.
+                    error = verifyRuntime();
                 } catch (Exception e) {
                     error = e.getMessage() == null ? e.toString() : e.getMessage();
                 }
@@ -153,6 +170,9 @@ public class ZeusRuntime {
                         installState = DONE;
                         installBytes = installTotal;
                     } else {
+                        // Do not leave a version stamp behind for a runtime that
+                        // cannot start; the next launch should offer a reinstall.
+                        new File(root, ".version").delete();
                         installState = FAILED;
                         installError = error;
                     }
@@ -168,10 +188,6 @@ public class ZeusRuntime {
         File mark = new File(root, ".version");
         String want = version == null ? "0" : version;
         if (stamp.isFile() && mark.isFile() && want.equals(readSmall(mark).trim())) {
-            synchronized (this) {
-                installState = DONE;
-                installBytes = installTotal;
-            }
             return;
         }
 
@@ -305,19 +321,7 @@ public class ZeusRuntime {
             ProcessBuilder builder = new ProcessBuilder(cmd);
             builder.directory(cwd);
             builder.redirectErrorStream(true);
-            Map<String, String> env = builder.environment();
-            env.put("HOME", home.getAbsolutePath());
-            env.put("TMPDIR", tmp.getAbsolutePath());
-            env.put("PATH", nativeDir() + ":/system/bin:/system/xbin");
-            env.put("LD_LIBRARY_PATH", nativeDir());
-            env.put("ESBUILD_BINARY_PATH", new File(nativeDir(), "libesbuild.so").getAbsolutePath());
-            env.put("NODE_USE_SYSTEM_CA", "1");
-            env.put("npm_config_cache", npmCache.getAbsolutePath());
-            env.put("npm_config_prefix", new File(root, "global").getAbsolutePath());
-            env.put("npm_config_update_notifier", "false");
-            env.put("npm_config_fund", "false");
-            env.put("NO_UPDATE_NOTIFIER", "1");
-            env.put("CI", "1");
+            applyEnv(builder);
 
             synchronized (lines) {
                 lines.clear();
@@ -450,6 +454,58 @@ public class ZeusRuntime {
     // ------------------------------------------------------------- helpers
     private String nodePath() {
         return new File(nativeDir(), "libnode_cli.so").getAbsolutePath();
+    }
+
+    /** Environment shared by every bundled-Node process (jobs and the health check). */
+    private void applyEnv(ProcessBuilder builder) {
+        Map<String, String> env = builder.environment();
+        env.put("HOME", home.getAbsolutePath());
+        env.put("TMPDIR", tmp.getAbsolutePath());
+        env.put("PATH", nativeDir() + ":/system/bin:/system/xbin");
+        // PackageManager only extracts lib*.so from the APK, so versioned
+        // sonames (libz.so.1, libicuuc.so.79, ...) are unpacked next to the
+        // runtime and located through the linker search path.
+        env.put("LD_LIBRARY_PATH", new File(root, "libs").getAbsolutePath() + ":" + nativeDir());
+        env.put("ESBUILD_BINARY_PATH", new File(nativeDir(), "libesbuild.so").getAbsolutePath());
+        env.put("NODE_USE_SYSTEM_CA", "1");
+        env.put("npm_config_cache", npmCache.getAbsolutePath());
+        env.put("npm_config_prefix", new File(root, "global").getAbsolutePath());
+        env.put("npm_config_update_notifier", "false");
+        env.put("npm_config_fund", "false");
+        env.put("NO_UPDATE_NOTIFIER", "1");
+        env.put("CI", "1");
+    }
+
+    /** Runs `node --version`; returns null when fine, the failure text otherwise. */
+    private String verifyRuntime() {
+        Process proc = null;
+        try {
+            ProcessBuilder builder = new ProcessBuilder(nodePath(), "--version");
+            builder.directory(root);
+            builder.redirectErrorStream(true);
+            applyEnv(builder);
+            proc = builder.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            StringBuilder out = new StringBuilder();
+            try {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (out.length() < 400) out.append(line).append('\n');
+                }
+            } finally {
+                reader.close();
+            }
+            int code = proc.waitFor();
+            if (code == 0) return null;
+            String message = out.toString().trim();
+            return message.length() == 0 ? "Node 启动失败（退出码 " + code + "）" : message;
+        } catch (Exception e) {
+            return "Node 启动失败: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+        } finally {
+            if (proc != null) {
+                try { proc.destroy(); } catch (Exception ignored) {}
+            }
+        }
     }
 
     private String nativeDir() {

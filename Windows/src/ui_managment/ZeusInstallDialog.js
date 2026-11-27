@@ -74,7 +74,7 @@ export function openZeusInstallDialog(options) {
                 <div class="zp-zi__bar" style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden">
                     <div class="zp-zi__fill" style="height:100%;width:0%;background:#4c8dff;transition:width .2s"></div>
                 </div>
-                <div class="zp-np__status zp-zi__status" role="status" style="margin-top:8px"></div>
+                <div class="zp-np__status zp-zi__status" role="status" style="margin-top:8px;word-break:break-all"></div>
             </div>
             <div class="zp-np__foot">
                 <button type="button" class="zp-np__btn" data-act="later">
@@ -99,7 +99,7 @@ export function openZeusInstallDialog(options) {
                 .replace("{total}", formatMb(p.total));
         } else if (p.state === "done") {
             status.textContent = t("zeus.install.done", "安装完成，zeus 菜单已可用");
-            installBtn.disabled = true;
+            installBtn.disabled = false;
             installBtn.textContent = t("zeus.install.close", "完成");
             installBtn.setAttribute("data-act", "close");
         } else if (p.state === "failed") {

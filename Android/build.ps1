@@ -21,7 +21,7 @@ $MASTER = Join-Path $ROOT "..\Windows"
 $BUILD = Join-Path $ROOT "build"
 $ASSETS = Join-Path $ROOT "assets"
 $RELEASE = Join-Path $ROOT "release"
-$VERSION = "1.16.0"
+$VERSION = "1.16.1"
 $VER_PARTS = $VERSION.Split(".")
 $VER_CODE = [int]$VER_PARTS[0] * 10000 + [int]$VER_PARTS[1] * 100 + [int]$VER_PARTS[2]
 $OUT_APK = Join-Path $RELEASE "ZeppPlayer-$VERSION.apk"
@@ -147,9 +147,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "res\drawable") | Out
 Copy-Item (Join-Path $MASTER "app\icon.png") (Join-Path $ROOT "res\drawable\ic_launcher.png") -Force
 
 # ------------------------------------------------------------------ Zeus CLI
-# The phone client runs the real @zeppos/zeus-cli on a genuine Node.js runtime:
-# node itself (and esbuild) go into lib/arm64-v8a so Android extracts them to
-# the native library directory, where executing binaries is allowed on API 29+.
+# The phone client runs the real @zeppos/zeus-cli on a genuine Node.js runtime.
+# Only libnode_cli.so and libesbuild.so go into lib/arm64-v8a: PackageManager
+# extracts native entries whose names match lib*.so, so it silently skips
+# versioned sonames such as libz.so.1 / libicuuc.so.79. Those libraries are
+# shipped inside the asset zip instead and resolved through LD_LIBRARY_PATH.
 Step "Staging Zeus runtime"
 & powershell -ExecutionPolicy Bypass -File (Join-Path $ROOT "fetch_zeus_runtime.ps1")
 if ($LASTEXITCODE -ne 0) { throw "Zeus runtime staging failed" }
@@ -157,23 +159,38 @@ if ($LASTEXITCODE -ne 0) { throw "Zeus runtime staging failed" }
 $RUNTIME = Join-Path (Join-Path $ROOT "..") ".zeus_runtime"
 $LIB_OUT = Join-Path $BUILD "lib\arm64-v8a"
 New-Item -ItemType Directory -Force -Path $LIB_OUT | Out-Null
+
+$STAGE = Join-Path $BUILD "zeus-tree"
+if (Test-Path $STAGE) { Remove-Item $STAGE -Recurse -Force }
+Copy-Item (Join-Path $RUNTIME "zeus") $STAGE -Recurse -Force
+$STAGE_LIBS = Join-Path $STAGE "libs"
+New-Item -ItemType Directory -Force -Path $STAGE_LIBS | Out-Null
+
+$EXECUTABLES = @("libnode_cli.so", "libesbuild.so")
 Get-ChildItem (Join-Path $RUNTIME "libs") -File | ForEach-Object {
-    Copy-Item $_.FullName (Join-Path $LIB_OUT $_.Name) -Force
+    if ($EXECUTABLES -contains $_.Name) {
+        Copy-Item $_.FullName (Join-Path $LIB_OUT $_.Name) -Force
+    } else {
+        Copy-Item $_.FullName (Join-Path $STAGE_LIBS $_.Name) -Force
+    }
 }
 Write-Host ("    native libs: " + (Get-ChildItem $LIB_OUT -File).Count + " files, " +
     [math]::Round(((Get-ChildItem $LIB_OUT -File | Measure-Object Length -Sum).Sum / 1MB), 1) + " MB")
+Write-Host ("    bundled libs: " + (Get-ChildItem $STAGE_LIBS -File).Count + " files, " +
+    [math]::Round(((Get-ChildItem $STAGE_LIBS -File | Measure-Object Length -Sum).Sum / 1MB), 1) + " MB")
 
-# The JS tree is one compressed asset; it is unpacked into files/zeus on first run.
+# The JS tree (plus the versioned shared libraries) is one compressed asset;
+# it is unpacked into files/zeus on first run.
 $zeusZip = Join-Path $ASSETS "zeus-runtime.zip"
 if (Test-Path $zeusZip) { Remove-Item $zeusZip -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
-    (Join-Path $RUNTIME "zeus"), $zeusZip,
+    $STAGE, $zeusZip,
     [System.IO.Compression.CompressionLevel]::Optimal, $false)
 Write-Host ("    zeus assets: " + [math]::Round((Get-Item $zeusZip).Length / 1MB, 1) + " MB")
 
 # Uncompressed size lets the install dialog show an exact progress bar.
-$zeusFiles = Get-ChildItem (Join-Path $RUNTIME "zeus") -Recurse -File
+$zeusFiles = Get-ChildItem $STAGE -Recurse -File
 $zeusMeta = @{
     bytes = ($zeusFiles | Measure-Object Length -Sum).Sum
     files = $zeusFiles.Count
