@@ -2,12 +2,19 @@
 
 .zp-np {
     position: fixed;
-    inset: 0;
+    /* Explicit offsets instead of the `inset` shorthand: older Android
+     * WebViews ignore `inset`, which left the dialog shrink-wrapped at its
+     * static position (top-left, no backdrop) instead of centred. */
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 100000;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 16px;
+    box-sizing: border-box;
     background: rgba(0, 0, 0, .55);
     font-family: Arial, Helvetica, sans-serif;
     animation: zp-np-fade .12s ease-out;
@@ -19,9 +26,11 @@
 }
 
 .zp-np__dialog {
-    width: min(560px, 100%);
+    width: 560px;
+    max-width: 100%;
     max-height: 86vh;
     max-height: 86dvh;
+    margin: auto;
     display: flex;
     flex-direction: column;
     background: var(--panel, #333);
@@ -277,6 +286,8 @@ body.zp-mobile .zp-np {
 }
 
 body.zp-mobile .zp-np__dialog {
+    width: 100%;
+    max-width: 100%;
     max-height: 84vh;
     max-height: 84dvh;
 }

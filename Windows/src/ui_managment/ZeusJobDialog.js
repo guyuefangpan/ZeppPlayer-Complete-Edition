@@ -9,6 +9,7 @@ import {showToast} from "../zepp_player/zpToast.js";
 import {zpAlert} from "../zepp_player/zpDialogs.js";
 import {ConsoleManager} from "./ConsoleManager.js";
 import {zeusRun, zeusStop, watchZeusJob} from "./ZeusClient.js";
+import {ProjectPicker} from "./ProjectPicker";
 import "./NewProjectDialog.css";
 
 const ACTION_KEYS = {
@@ -19,6 +20,7 @@ const ACTION_KEYS = {
     config: "zeus.config",
     "cache-update": "zeus.cacheUpdate",
     "cache-clean": "zeus.cacheClean",
+    create: "zeus.item.new",
 };
 
 let overlay = null;
@@ -135,9 +137,20 @@ export function openZeusJobDialog(action) {
 /* status / config / cache are not tied to a project. */
 const GLOBAL_ACTIONS = ["status", "config", "cache-update", "cache-clean"];
 
-/* Runs a zeus command and streams it into the dialog. */
-export async function runZeusProjectAction(action, projectUrl) {
-    if (!projectUrl && GLOBAL_ACTIONS.indexOf(action) < 0) {
+/* Selects a freshly created project so it starts previewing immediately. */
+async function openCreatedProject(name) {
+    try {
+        const selected = await ProjectPicker.refreshOptions("/projects/" + name);
+        if (selected) await ProjectPicker.applyProjectUrl(selected);
+    } catch (e) {
+        console.warn("Cannot open the new project", e);
+    }
+}
+
+/* Runs a zeus command and streams it into the dialog. `extra` carries the
+ * payload of non-project commands such as `create`. */
+export async function runZeusProjectAction(action, projectUrl, extra) {
+    if (!projectUrl && GLOBAL_ACTIONS.indexOf(action) < 0 && action !== "create") {
         await zpAlert(t("zeus.noProject", "请先选择一个项目"));
         return;
     }
@@ -146,7 +159,7 @@ export async function runZeusProjectAction(action, projectUrl) {
 
     let res;
     try {
-        res = await zeusRun({action, projectUrl});
+        res = await zeusRun(Object.assign({action, projectUrl}, extra || {}));
     } catch (e) {
         closeZeusJobDialog();
         await zpAlert(String(e && e.message || e));
@@ -176,6 +189,9 @@ export async function runZeusProjectAction(action, projectUrl) {
             if (job.code === 0) {
                 setStatus(t("zeus.done", "已完成"));
                 showToast(actionTitle(action) + " " + t("zeus.done", "已完成"), false);
+                if (action === "create" && extra && extra.name) {
+                    openCreatedProject(extra.name);
+                }
             } else {
                 setStatus(t("zeus.exitCode", "失败（退出码 {code}）").replace("{code}", String(job.code)), true);
             }

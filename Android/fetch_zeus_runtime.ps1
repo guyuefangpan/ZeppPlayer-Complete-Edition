@@ -29,7 +29,82 @@ function Step($t) { Write-Host "==> $t" }
 
 New-Item -ItemType Directory -Force -Path $CACHE, $LIBS, $ZEUS | Out-Null
 
+# zeus reports its node/npm versions with execSync('node -v'), which goes
+# through /bin/sh. Android has no /bin/sh (only /system/bin/sh), so every
+# command died with a spawn ENOENT before doing anything. Read the versions
+# from the process instead; the patch is idempotent.
+# `zeus create` installs the template dependencies with
+#   exec("cd <dir> && npm install")
+# which needs /bin/sh and an `npm` in PATH; neither exists on Android. Append a
+# replacement that runs the bundled npm CLI through the same node process.
+# Reassignment happens before createX is called, so the module picks it up.
+function RepairZeusCreateInstall {
+    $js = Join-Path $ZEUS "node_modules\@zeppos\zeus-cli\private-modules\zeppos-app-utils\dist\modules\create\index.js"
+    if (-not (Test-Path $js)) { return }
+    $src = [System.IO.File]::ReadAllText($js)
+    if ($src.Contains("ZeusPlayer: install deps without /bin/sh")) { return }
+
+    $patch = @'
+
+// ZeusPlayer: install deps without /bin/sh (Android has no /bin/sh or npm in
+// PATH). Runs the npm CLI shipped next to the runtime with the same node.
+projectPreInstall = function (dir) {
+    return new Promise(function (resolve) {
+        var fs = require('fs');
+        var path = require('path');
+        var cp = require('child_process');
+        if (!fs.existsSync(path.join(dir, 'package.json'))) {
+            resolve(true);
+            return;
+        }
+        var npmCli = path.resolve(__dirname, '../../../../../../../../npm/bin/npm-cli.js');
+        if (!fs.existsSync(npmCli)) {
+            console.error('bundled npm not found at ' + npmCli);
+            resolve(true);
+            return;
+        }
+        var child = cp.spawn(process.execPath, [npmCli, 'install', '--no-audit', '--no-fund'], {
+            cwd: dir,
+            env: process.env,
+        });
+        var out = '';
+        child.stdout.on('data', function (d) { out += d.toString(); });
+        child.stderr.on('data', function (d) { out += d.toString(); });
+        child.on('error', function (e) {
+            console.error('npm install failed: ' + e);
+            resolve(out);
+        });
+        child.on('close', function (code) {
+            if (code !== 0) console.error('npm install exited with code ' + code);
+            resolve(out);
+        });
+    });
+};
+'@
+
+    [System.IO.File]::AppendAllText($js, $patch, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "    patched zeus create dependency install"
+}
+
+function RepairZeusVersionProbe {
+    $js = Join-Path $ZEUS "node_modules\@zeppos\zeus-cli\modules\version.js"
+    if (-not (Test-Path $js)) { return }
+    $src = [System.IO.File]::ReadAllText($js)
+    $patched = $src.Replace(
+        "var nodeVersion = (0, node_child_process_1.execSync)('node -v').toString().trim();",
+        "var nodeVersion = process.version;")
+    $patched = $patched.Replace(
+        "var npmVersion = (0, node_child_process_1.execSync)('npm -v').toString().trim();",
+        "var npmVersion = 'bundled';")
+    if ($patched -ne $src) {
+        [System.IO.File]::WriteAllText($js, $patched, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "    patched zeus version probe (no /bin/sh on Android)"
+    }
+}
+
 if ((Test-Path $STAMP) -and (Test-Path (Join-Path $ZEUS "runtime.json"))) {
+    RepairZeusVersionProbe
+    RepairZeusCreateInstall
     Write-Host "Runtime already staged at $OUT"
     exit 0
 }
@@ -171,6 +246,8 @@ foreach ($docDir in @("doc", "man", "html", "docs")) {
 }
 
 Step "Writing runtime stamp"
+RepairZeusVersionProbe
+RepairZeusCreateInstall
 $manifest = @{
     node = $NODE_VERSION
     npm = $NPM_VERSION

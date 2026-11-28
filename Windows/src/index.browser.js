@@ -228,8 +228,27 @@ async function afterImport(result) {
     showToast(I18n.t("dialog.imported", "Project imported"), false);
 }
 
-/* Create a project from one of the official samples, then select it. */
-window.zpNewProject = () => openNewProjectDialog(afterImport);
+/* Create a project. On Android with the bundled zeus runtime this is a real
+ * `zeus create`; everywhere else it stays the template downloader. */
+async function newProject() {
+    if (isAndroidApp()) {
+        try {
+            const r = await fetch("/api/zeus/info");
+            const type = r.headers.get("content-type") || "";
+            const info = (r.ok && type.indexOf("application/json") > -1) ? await r.json() : null;
+            if (info && info.ok && info.installed) {
+                const mod = await import("./ui_managment/ZeusCreateDialog.js");
+                mod.openZeusCreateDialog();
+                return;
+            }
+        } catch (e) {
+            bootWarn("zeus create", e);
+        }
+    }
+    openNewProjectDialog(afterImport);
+}
+
+window.zpNewProject = newProject;
 window.zpCloseNewProject = () => closeNewProjectDialog();
 
 /* Pick a .zip from the device storage (phones and plain browsers). */

@@ -1,0 +1,20 @@
+/* `zeus create` dialog: name, API level and template. */
+
+.zp-zc__name {
+    font-size: 14px;
+}
+
+.zp-zc__hint {
+    margin: 14px 0 0;
+    font-size: 11px;
+    line-height: 1.55;
+    opacity: .6;
+}
+
+.zp-zc__status {
+    margin-top: 8px;
+}
+
+.zp-np__versions {
+    padding: 2px 0;
+}

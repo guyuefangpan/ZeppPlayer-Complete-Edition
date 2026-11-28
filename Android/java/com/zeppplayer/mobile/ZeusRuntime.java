@@ -476,11 +476,15 @@ public class ZeusRuntime {
         env.put("CI", "1");
     }
 
-    /** Runs `node --version`; returns null when fine, the failure text otherwise. */
+    /** Runs the CLI's version probe; returns null when fine, the failure text otherwise. */
     private String verifyRuntime() {
         Process proc = null;
         try {
-            ProcessBuilder builder = new ProcessBuilder(nodePath(), "--version");
+            // Loads zeus-cli modules under the bundled Node: catches both
+            // linker problems and broken module code without touching network.
+            File probe = new File(root, "node_modules/@zeppos/zeus-cli/modules/version.js");
+            ProcessBuilder builder = new ProcessBuilder(nodePath(), "-e",
+                    "require(\"" + probe.getAbsolutePath() + "\").version();");
             builder.directory(root);
             builder.redirectErrorStream(true);
             applyEnv(builder);
@@ -498,9 +502,9 @@ public class ZeusRuntime {
             int code = proc.waitFor();
             if (code == 0) return null;
             String message = out.toString().trim();
-            return message.length() == 0 ? "Node 启动失败（退出码 " + code + "）" : message;
+            return message.length() == 0 ? "Zeus 自检失败（退出码 " + code + "）" : message;
         } catch (Exception e) {
-            return "Node 启动失败: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+            return "Zeus 自检失败: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         } finally {
             if (proc != null) {
                 try { proc.destroy(); } catch (Exception ignored) {}
@@ -510,6 +514,11 @@ public class ZeusRuntime {
 
     private String nativeDir() {
         return context.getApplicationInfo().nativeLibraryDir;
+    }
+
+    /** True when a project folder with this name already exists. */
+    public boolean projectExists(String name) {
+        return new File(projectsDir, name).exists();
     }
 
     private File resolveProject(String projectUrl) {

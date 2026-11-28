@@ -487,6 +487,43 @@ public final class LocalServer {
                 argv.add("cache");
                 argv.add("clean");
                 global = true;
+            } else if ("create".equals(action)) {
+                // `zeus create` is interactive unless every answer is supplied.
+                // Only non-empty templates are offered: they skip the
+                // "app-side?" / "settings?" / build-target questions.
+                String name = body.get("name");
+                name = name == null ? "" : name.trim();
+                if (!name.matches("[A-Za-z][A-Za-z0-9_-]{0,39}")) {
+                    sendJson(out, 400,
+                            "{\"ok\":false,\"msg\":\"项目名需以字母开头，只能包含字母、数字、下划线或短横线\"}");
+                    return;
+                }
+                if (zeus.projectExists(name)) {
+                    sendJson(out, 400, "{\"ok\":false,\"msg\":"
+                            + Json.str("项目 " + name + " 已存在") + "}");
+                    return;
+                }
+                String level = body.get("apiLevel");
+                if (!"1.0".equals(level) && !"2.0".equals(level)
+                        && !"3.0".equals(level) && !"4.0".equals(level)) {
+                    level = "3.0";
+                }
+                String template = body.get("template");
+                if (template == null || template.length() == 0
+                        || template.indexOf("..") >= 0 || template.indexOf('/') >= 0
+                        || template.indexOf('\\') >= 0) {
+                    sendJson(out, 400, "{\"ok\":false,\"msg\":\"请选择项目模板\"}");
+                    return;
+                }
+                argv.add("create");
+                argv.add(name);
+                argv.add("--APILevel");
+                argv.add(level);
+                argv.add("--appType");
+                argv.add("app");
+                argv.add("--template");
+                argv.add(template);
+                global = true;
             } else {
                 sendJson(out, 400, "{\"ok\":false,\"msg\":\"不支持的 zeus 操作\"}");
                 return;
